@@ -31,7 +31,8 @@ const COMMANDS = {
     "RG_BASITFATURA"
   ],
   sendSignSMSCode: ["EARSIV_PORTAL_SMSSIFRE_GONDER", "RG_SMSONAY"],
-  verifySMSCode: ["EARSIV_PORTAL_SMSSIFRE_DOGRULA", "RG_SMSONAY"],
+  verifySignSMSCode: ["EARSIV_PORTAL_SMSSIFRE_DOGRULA", "RG_SMSONAY"],
+  getPhoneNumber: ["EARSIV_PORTAL_TELEFONNO_SORGULA", "RG_BASITTASLAKLAR"],
   getUserData: ["EARSIV_PORTAL_KULLANICI_BILGILERI_GETIR", "RG_KULLANICI"],
   updateUserData: ["EARSIV_PORTAL_KULLANICI_BILGILERI_KAYDET", "RG_KULLANICI"]
 
@@ -87,7 +88,24 @@ async function runCommand(token, command, pageName, data = {}) {
       )}`
     }
   );
-  return response.json();
+  const json = await response.json();
+  if (json && json.error) {
+    throw gibError(json);
+  }
+  return json;
+}
+
+function gibError(json) {
+  const error = new Error(getErrorMessage(json));
+  error.gib = true;
+  return error;
+}
+
+function getErrorMessage(json) {
+  const messages = (json.messages || [])
+    .map(message => message.text)
+    .filter(Boolean);
+  return messages.length ? messages.join(" ") : "GİB isteği başarısız oldu.";
 }
 
 // Token Getter
@@ -104,7 +122,22 @@ async function getToken(userName, password) {
     }
   );
   const json = await response.json();
+  if (!json.token) {
+    throw gibError(json);
+  }
   return json.token;
+}
+
+async function logout(token) {
+  const response = await fetch(
+    `${ENV[CURRENT_ENV].BASE_URL}/earsiv-services/assos-login`,
+    {
+      ...DEFAULT_REQUEST_OPTS(),
+      referrer: `${ENV[CURRENT_ENV].BASE_URL}/intragiris.html`,
+      body: `assoscmd=logout&rtype=json&token=${token}&`
+    }
+  );
+  return response.json();
 }
 
 // API
@@ -138,9 +171,9 @@ async function createDraftInvoice(token, invoiceDetails = {}) {
     binaNo: invoiceDetails.buildingNumber || "",
     kapiNo: invoiceDetails.doorNumber || "",
     kasabaKoy: invoiceDetails.town || "",
-    mahalleSemtIlce: invoiceDetails.district,
+    mahalleSemtIlce: invoiceDetails.district || "",
     sehir: invoiceDetails.city || " ",
-    ulke: invoiceDetails.country,
+    ulke: invoiceDetails.country || "Türkiye",
     postaKodu: invoiceDetails.zipCode || "",
     tel: invoiceDetails.phoneNumber || "",
     fax: invoiceDetails.faxNumber || "",
@@ -250,8 +283,11 @@ async function getAllInvoicesByDateRange(token, { startDate, endDate }) {
 
 async function findInvoice(token, draftInvoice) {
   const { date, uuid } = draftInvoice;
-  const invoices = await getAllInvoicesByDateRange(token, date, date);
-  return invoices.data.find(invoice => invoice.ettn === uuid);
+  const invoices = await getAllInvoicesByDateRange(token, {
+    startDate: date,
+    endDate: date
+  });
+  return invoices.find(invoice => invoice.ettn === uuid);
 }
 
 async function signDraftInvoice(token, draftInvoice) {
@@ -260,7 +296,7 @@ async function signDraftInvoice(token, draftInvoice) {
   });
 }
 
-async function getInvoiceHTML(token, uuid, { signed }) {
+async function getInvoiceHTML(token, uuid, { signed } = {}) {
   const invoice = await runCommand(token, ...COMMANDS.getInvoiceHTML, {
     ettn: uuid,
     onayDurumu: signed ? "Onaylandı" : "Onaylanmadı"
@@ -268,7 +304,7 @@ async function getInvoiceHTML(token, uuid, { signed }) {
   return invoice.data;
 }
 
-function getDownloadURL(token, invoiceUUID, { signed }) {
+function getDownloadURL(token, invoiceUUID, { signed } = {}) {
   return `${
     ENV[CURRENT_ENV].BASE_URL
   }/earsiv-services/download?token=${token}&ettn=${invoiceUUID}&belgeTip=FATURA&onayDurumu=${encodeURIComponent(
@@ -295,15 +331,9 @@ async function getRecipientDataByTaxIDOrTRID(token, taxIDOrTRID) {
   return recipient.data;
 }
 
-async function getRecipientDataByTaxIDOrTRID(token, taxIDOrTRID) {
-  const recipient = await runCommand(
-    token,
-    ...COMMANDS.getRecipientDataByTaxIDOrTRID,
-    {
-      vknTcknn: taxIDOrTRID
-    }
-  );
-  return recipient.data;
+async function getPhoneNumber(token) {
+  const phone = await runCommand(token, ...COMMANDS.getPhoneNumber);
+  return phone.data && phone.data.telefon;
 }
 
 async function sendSignSMSCode(token, phone) {
@@ -312,15 +342,18 @@ async function sendSignSMSCode(token, phone) {
     KCEPTEL: false,
     TIP: ""
   });
-  return sms.oid;
+  return (sms.data && sms.data.oid) || sms.oid;
 }
 
-async function verifySignSMSCode(token, smsCode, operationId) {
+// draftInvoices: getAllInvoicesByDateRange ile alınan onaylanmamış faturalar.
+async function verifySignSMSCode(token, smsCode, operationId, draftInvoices) {
   const sms = await runCommand(token, ...COMMANDS.verifySignSMSCode, {
     SIFRE: smsCode,
-    OID: operationId
+    OID: operationId,
+    OPR: 1,
+    DATA: draftInvoices
   });
-  return sms.oid;
+  return sms.data;
 }
 
 async function getUserData(token) {
@@ -400,17 +433,18 @@ async function createInvoice(
 
 async function createInvoiceAndGetDownloadURL(...args) {
   const { token, uuid, signed } = await createInvoice(...args);
-  return getDownloadURL(token, uuid, signed);
+  return getDownloadURL(token, uuid, { signed });
 }
 
 async function createInvoiceAndGetHTML(...args) {
   const { token, uuid, signed } = await createInvoice(...args);
-  return getInvoiceHTML(token, uuid, signed);
+  return getInvoiceHTML(token, uuid, { signed });
 }
 
 module.exports = {
   enableTestMode,
   getToken,
+  logout,
   createDraftInvoice,
   getAllInvoicesByDateRange,
   findInvoice,
@@ -421,6 +455,7 @@ module.exports = {
   createInvoiceAndGetDownloadURL,
   cancelDraftInvoice,
   getRecipientDataByTaxIDOrTRID,
+  getPhoneNumber,
   sendSignSMSCode,
   verifySignSMSCode,
   getUserData,

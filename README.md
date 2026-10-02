@@ -18,6 +18,42 @@ eArşiv sistemi üzerinde fatura oluşturmanızı sağlar.
 > [https://earsivportal.efatura.gov.tr/intragiris.html](https://earsivportal.efatura.gov.tr/intragiris.html) adresindeki parola ekranında kullanılan kullanıcı kodu ve parola ile bu paketi kullanabilirsiniz.
 > ℹ️ Bu **kullanıcı kodu ve parola bilgilerini** muhasebecinizden ya da **GİB - İnteraktif Vergi Dairesi**'nden edinebilirsiniz.
 
+## Web Paneli
+
+Kod yazmadan kullanmak için basit bir panel bulunur:
+
+```
+npm install
+npm start            # http://127.0.0.1:3000
+FATURA_TEST=1 npm start   # GİB test portalı
+```
+
+1. Muhasebecinizden aldığınız e-Arşiv kullanıcı kodu ve şifresiyle giriş yapın (şifre saklanmaz, yalnızca GİB oturumu tutulur).
+2. **Yeni fatura** sekmesinden alıcıyı ve kalemleri girip taslak oluşturun. Toplamlar ve KDV otomatik hesaplanır.
+3. **Faturalar** sekmesinde "Onaylanmadı" durumundaki taslakları seçip **GİB onayına gönder**'e basın; GİB'de kayıtlı telefona gelen SMS şifresiyle fatura kesilir.
+4. Portaldaki tüm faturaları tarih aralığına göre listeleyebilir, görüntüleyip yazdırabilir ya da ZIP olarak indirebilirsiniz.
+
+#### WhatsApp ile telefon doğrulama
+
+**Çıkış**'a ilk basıldığında, bu cihazda doğrulanmış bir telefon yoksa panel numarayı (GİB'de kayıtlı numara önerilir) WhatsApp'tan gönderilen 6 haneli kodla doğrular ve imzalı bir çereze kaydeder. Sonraki çıkışlarda tekrar sormaz; giriş ekranı doğrulanmış numarayı gösterir.
+
+Kodlar, cevaplama.com ve diğer sitelerde kullanılan mevcut WhatsApp 2FA altyapısıyla (`sq_wa_gonder()`, Netgsm **0850 840 52 14**) gönderilir. Panel kodu doğrudan göndermez; sunucuya konan `deploy/wa-otp.php` uç noktasına iletir. Uç nokta yalnızca telefon ve 6 haneli kodu kabul eder, mesaj metnini kendisi oluşturur ve aynı numaraya saatte en fazla 5 kod gönderir.
+
+1. `deploy/wa-otp.php` dosyasını sunucuda HTTPS ile erişilen bir dizine koyun ve içindeki `WA_HELPER` yolunu `sq_wa_gonder()` fonksiyonunun tanımlı olduğu dosyaya ayarlayın.
+2. Uzun, rastgele bir anahtar üretin (`openssl rand -hex 32`) ve bunu hem PHP tarafında hem panelde `WA_OTP_KEY` olarak tanımlayın.
+3. Paneli şu ortam değişkenleriyle başlatın:
+
+```
+WA_OTP_URL=https://.../wa-otp.php
+WA_OTP_KEY=...                  # wa-otp.php ile aynı anahtar
+COOKIE_SECRET=...               # uzun, rastgele ve sabit bir değer
+COOKIE_SECURE=1                 # HTTPS arkasında çalışırken
+```
+
+Bu değerleri sunucunun ortam değişkenlerine yazın; repoya eklemeyin.
+
+> Panel varsayılan olarak yalnızca `127.0.0.1` üzerinde dinler. Sunucuya kurulacaksa önüne HTTPS'li bir ters vekil (nginx vb.) koyun.
+
 ## Yükleme
 
 ```
