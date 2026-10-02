@@ -2,11 +2,9 @@
 // Kullanım: npm start  ->  http://localhost:3000
 // GİB test portalı için: FATURA_TEST=1 npm start
 //
-// WhatsApp telefon doğrulaması (WhatsApp Cloud API) için ortam değişkenleri:
-//   WHATSAPP_TOKEN            Meta erişim token'ı
-//   WHATSAPP_PHONE_NUMBER_ID  Gönderen WhatsApp Business numarasının ID'si
-//   WHATSAPP_TEMPLATE         Onaylı "authentication" şablonunun adı (kod kopyala butonlu)
-//   WHATSAPP_TEMPLATE_LANG    Şablon dili (varsayılan: tr)
+// WhatsApp telefon doğrulaması (cevaplama.com 2FA altyapısı) için ortam değişkenleri:
+//   WA_OTP_URL                Sunucudaki wa-otp.php adresi (HTTPS)
+//   WA_OTP_KEY                wa-otp.php ile paylaşılan gizli anahtar
 //   COOKIE_SECRET             Telefon çerezini imzalamak için sabit gizli anahtar
 //   COOKIE_SECURE=1           Çerezleri yalnızca HTTPS üzerinden gönder
 
@@ -143,46 +141,23 @@ function getVerifiedPhone(req) {
 }
 
 function whatsappConfigured() {
-  return Boolean(
-    process.env.WHATSAPP_TOKEN &&
-      process.env.WHATSAPP_PHONE_NUMBER_ID &&
-      process.env.WHATSAPP_TEMPLATE
-  );
+  return Boolean(process.env.WA_OTP_URL && process.env.WA_OTP_KEY);
 }
 
-// Onaylı authentication şablonu ile doğrulama kodu gönderir.
+// Kodu, cevaplama.com 2FA altyapısını kullanan sunucudaki uç noktaya iletir.
+// Uç nokta yalnızca telefon ve kodu kabul eder; mesaj metnini kendisi oluşturur.
 async function sendWhatsAppCode(phone, code) {
-  const response = await fetch(
-    `https://graph.facebook.com/v21.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
-    {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        to: phone,
-        type: "template",
-        template: {
-          name: process.env.WHATSAPP_TEMPLATE,
-          language: { code: process.env.WHATSAPP_TEMPLATE_LANG || "tr" },
-          components: [
-            { type: "body", parameters: [{ type: "text", text: code }] },
-            {
-              type: "button",
-              sub_type: "url",
-              index: "0",
-              parameters: [{ type: "text", text: code }]
-            }
-          ]
-        }
-      })
-    }
-  );
+  const response = await fetch(process.env.WA_OTP_URL, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${process.env.WA_OTP_KEY}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({ phone, code })
+  });
   const json = await response.json().catch(() => ({}));
-  if (!response.ok || json.error) {
-    console.error("WhatsApp gönderim hatası:", json.error || response.status);
+  if (!response.ok || !json.ok) {
+    console.error("WhatsApp gönderim hatası:", response.status, json.error);
     throw new HttpError(502, "WhatsApp mesajı gönderilemedi.");
   }
 }

@@ -37,13 +37,15 @@ FATURA_TEST=1 npm start   # GİB test portalı
 
 **Çıkış**'a ilk basıldığında, bu cihazda doğrulanmış bir telefon yoksa panel numarayı (GİB'de kayıtlı numara önerilir) WhatsApp'tan gönderilen 6 haneli kodla doğrular ve imzalı bir çereze kaydeder. Sonraki çıkışlarda tekrar sormaz; giriş ekranı doğrulanmış numarayı gösterir.
 
-Gönderim WhatsApp Cloud API ile, cevaplama.com WhatsApp Business hesabındaki **0850 840 52 14** (Netgsm) numarasından yapılır. Bunun için o numaranın Meta'da kayıtlı ve onaylı bir *authentication* (kod kopyala butonlu) şablonunun olması gerekir:
+Kodlar, cevaplama.com ve diğer sitelerde kullanılan mevcut WhatsApp 2FA altyapısıyla (`sq_wa_gonder()`, Netgsm **0850 840 52 14**) gönderilir. Panel kodu doğrudan göndermez; sunucuya konan `deploy/wa-otp.php` uç noktasına iletir. Uç nokta yalnızca telefon ve 6 haneli kodu kabul eder, mesaj metnini kendisi oluşturur ve aynı numaraya saatte en fazla 5 kod gönderir.
+
+1. `deploy/wa-otp.php` dosyasını sunucuda HTTPS ile erişilen bir dizine koyun ve içindeki `WA_HELPER` yolunu `sq_wa_gonder()` fonksiyonunun tanımlı olduğu dosyaya ayarlayın.
+2. Uzun, rastgele bir anahtar üretin (`openssl rand -hex 32`) ve bunu hem PHP tarafında hem panelde `WA_OTP_KEY` olarak tanımlayın.
+3. Paneli şu ortam değişkenleriyle başlatın:
 
 ```
-WHATSAPP_TOKEN=...              # Meta sistem kullanıcısı erişim token'ı
-WHATSAPP_PHONE_NUMBER_ID=...    # 0850 840 52 14 numarasının Phone Number ID'si
-WHATSAPP_TEMPLATE=...           # onaylı authentication şablonunun adı
-WHATSAPP_TEMPLATE_LANG=tr
+WA_OTP_URL=https://.../wa-otp.php
+WA_OTP_KEY=...                  # wa-otp.php ile aynı anahtar
 COOKIE_SECRET=...               # uzun, rastgele ve sabit bir değer
 COOKIE_SECURE=1                 # HTTPS arkasında çalışırken
 ```
