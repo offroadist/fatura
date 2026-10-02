@@ -81,6 +81,7 @@
   <section id="loginView" class="card login hidden">
     <h2 style="margin-top:0">GİB e-Arşiv Girişi</h2>
     <p class="muted">Muhasebecinizden aldığınız e-Arşiv portal kullanıcı kodu ve şifresiyle giriş yapın. Şifreniz saklanmaz.</p>
+    <p id="rememberedPhone" class="msg ok"></p>
     <div id="loginMsg" class="msg err"></div>
     <form id="loginForm">
       <div style="margin-bottom:12px"><label for="username">Kullanıcı kodu</label>
@@ -175,6 +176,28 @@
   </form>
 </dialog>
 
+<dialog id="waDialog">
+  <form method="dialog" class="dialog-body" id="waForm">
+    <h3 style="margin-top:0">Telefonunuzu WhatsApp ile doğrulayın</h3>
+    <p class="muted">Çıkmadan önce cep telefonunuzu bir kez doğrulayın; bu cihaz numaranızı hatırlar.</p>
+    <div id="waMsg" class="msg err"></div>
+    <div id="waPhoneStep">
+      <label for="waPhone">Cep telefonu</label>
+      <input id="waPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="05XX XXX XX XX">
+    </div>
+    <div id="waCodeStep" class="hidden">
+      <p id="waInfo" class="muted"></p>
+      <label for="waCode">WhatsApp kodu</label>
+      <input id="waCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
+    </div>
+    <div class="actions" style="justify-content:flex-end;margin-top:16px">
+      <button type="button" id="waSkip">Doğrulamadan çık</button>
+      <button type="button" id="waSend" class="primary">WhatsApp'tan kod gönder</button>
+      <button id="waVerify" class="primary hidden">Doğrula ve çık</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="previewDialog">
   <div class="preview">
     <div class="bar">
@@ -221,6 +244,9 @@ function showLogin(message) {
   $("appView").classList.add("hidden");
   $("loginView").classList.remove("hidden");
   flash($("loginMsg"), message);
+  api("/api/whatsapp/remembered")
+    .then(({ phone }) => flash($("rememberedPhone"), phone && `Bu cihaz WhatsApp ile doğrulandı: ${phone}`, "ok"))
+    .catch(() => {});
 }
 
 function showApp({ user, testMode }) {
@@ -243,7 +269,50 @@ $("loginForm").addEventListener("submit", async e => {
   } catch (err) { flash($("loginMsg"), err.message); }
   btn.disabled = false; btn.textContent = "Giriş yap";
 });
-$("logoutBtn").onclick = async () => { await api("/api/logout", { method: "POST" }).catch(() => {}); showLogin(); };
+async function logout() {
+  if ($("waDialog").open) $("waDialog").close();
+  await api("/api/logout", { method: "POST" }).catch(() => {});
+  showLogin();
+}
+
+// Çıkış: bu cihazda doğrulanmış telefon yoksa önce WhatsApp ile doğrulat.
+$("logoutBtn").onclick = async () => {
+  const status = await api("/api/whatsapp/status").catch(() => null);
+  if (!status || status.verified) return logout();
+  $("waPhone").value = status.suggestedPhone;
+  $("waCode").value = "";
+  $("waPhoneStep").classList.remove("hidden");
+  $("waCodeStep").classList.add("hidden");
+  $("waSend").classList.remove("hidden");
+  $("waVerify").classList.add("hidden");
+  $("waSend").disabled = !status.configured;
+  flash($("waMsg"), status.configured ? "" : "WhatsApp doğrulaması bu sunucuda henüz yapılandırılmamış.");
+  $("waDialog").showModal();
+};
+$("waSkip").onclick = logout;
+$("waSend").onclick = async () => {
+  $("waSend").disabled = true;
+  try {
+    const { phone } = await api("/api/whatsapp/send", { method: "POST", body: { phone: $("waPhone").value } });
+    $("waInfo").textContent = `${phone} numarasına WhatsApp'tan gönderilen 6 haneli kodu girin.`;
+    $("waPhoneStep").classList.add("hidden");
+    $("waCodeStep").classList.remove("hidden");
+    $("waSend").classList.add("hidden");
+    $("waVerify").classList.remove("hidden");
+    flash($("waMsg"));
+    $("waCode").focus();
+  } catch (err) { flash($("waMsg"), err.message); }
+  $("waSend").disabled = false;
+};
+$("waForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  $("waVerify").disabled = true;
+  try {
+    await api("/api/whatsapp/verify", { method: "POST", body: { code: $("waCode").value.trim() } });
+    await logout();
+  } catch (err) { flash($("waMsg"), err.message); }
+  $("waVerify").disabled = false;
+});
 
 // Sekmeler
 document.querySelectorAll("[data-tab]").forEach(btn => btn.onclick = () => {

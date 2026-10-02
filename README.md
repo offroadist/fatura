@@ -33,6 +33,23 @@ FATURA_TEST=1 npm start   # GİB test portalı
 3. **Faturalar** sekmesinde "Onaylanmadı" durumundaki taslakları seçip **GİB onayına gönder**'e basın; GİB'de kayıtlı telefona gelen SMS şifresiyle fatura kesilir.
 4. Portaldaki tüm faturaları tarih aralığına göre listeleyebilir, görüntüleyip yazdırabilir ya da ZIP olarak indirebilirsiniz.
 
+#### WhatsApp ile telefon doğrulama
+
+**Çıkış**'a ilk basıldığında, bu cihazda doğrulanmış bir telefon yoksa panel numarayı (GİB'de kayıtlı numara önerilir) WhatsApp'tan gönderilen 6 haneli kodla doğrular ve imzalı bir çereze kaydeder. Sonraki çıkışlarda tekrar sormaz; giriş ekranı doğrulanmış numarayı gösterir.
+
+Gönderim WhatsApp Cloud API ile, cevaplama.com WhatsApp Business hesabındaki **0850 840 52 14** (Netgsm) numarasından yapılır. Bunun için o numaranın Meta'da kayıtlı ve onaylı bir *authentication* (kod kopyala butonlu) şablonunun olması gerekir:
+
+```
+WHATSAPP_TOKEN=...              # Meta sistem kullanıcısı erişim token'ı
+WHATSAPP_PHONE_NUMBER_ID=...    # 0850 840 52 14 numarasının Phone Number ID'si
+WHATSAPP_TEMPLATE=...           # onaylı authentication şablonunun adı
+WHATSAPP_TEMPLATE_LANG=tr
+COOKIE_SECRET=...               # uzun, rastgele ve sabit bir değer
+COOKIE_SECURE=1                 # HTTPS arkasında çalışırken
+```
+
+Bu değerleri sunucunun ortam değişkenlerine yazın; repoya eklemeyin.
+
 > Panel varsayılan olarak yalnızca `127.0.0.1` üzerinde dinler. Sunucuya kurulacaksa önüne HTTPS'li bir ters vekil (nginx vb.) koyun.
 
 ## Yükleme

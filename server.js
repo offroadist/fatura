@@ -1,6 +1,14 @@
 // Basit e-Arşiv fatura paneli.
 // Kullanım: npm start  ->  http://localhost:3000
 // GİB test portalı için: FATURA_TEST=1 npm start
+//
+// WhatsApp telefon doğrulaması (WhatsApp Cloud API) için ortam değişkenleri:
+//   WHATSAPP_TOKEN            Meta erişim token'ı
+//   WHATSAPP_PHONE_NUMBER_ID  Gönderen WhatsApp Business numarasının ID'si
+//   WHATSAPP_TEMPLATE         Onaylı "authentication" şablonunun adı (kod kopyala butonlu)
+//   WHATSAPP_TEMPLATE_LANG    Şablon dili (varsayılan: tr)
+//   COOKIE_SECRET             Telefon çerezini imzalamak için sabit gizli anahtar
+//   COOKIE_SECURE=1           Çerezleri yalnızca HTTPS üzerinden gönder
 
 const http = require("http");
 const fs = require("fs");
@@ -12,12 +20,21 @@ const fatura = require("./index");
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || "127.0.0.1";
 const SESSION_TTL = 30 * 60 * 1000;
+const PHONE_COOKIE_TTL = 365 * 24 * 60 * 60;
+const WHATSAPP_CODE_TTL = 5 * 60 * 1000;
+const WHATSAPP_RESEND_WAIT = 60 * 1000;
+const WHATSAPP_MAX_ATTEMPTS = 5;
+const COOKIE_SECURE = process.env.COOKIE_SECURE === "1" ? "; Secure" : "";
+
+// Sabit bir anahtar verilmezse sunucu her açıldığında kayıtlı telefon çerezleri geçersiz olur.
+const COOKIE_SECRET =
+  process.env.COOKIE_SECRET || crypto.randomBytes(32).toString("hex");
 
 if (process.env.FATURA_TEST === "1") {
   fatura.enableTestMode();
 }
 
-// sid -> { token, lastUsed }. Şifre saklanmaz, yalnızca GİB token'ı tutulur.
+// sid -> { token, lastUsed, whatsapp? }. Şifre saklanmaz, yalnızca GİB token'ı tutulur.
 const sessions = new Map();
 
 class HttpError extends Error {
@@ -82,6 +99,91 @@ async function readBody(req) {
     return body ? JSON.parse(body) : {};
   } catch (e) {
     throw new HttpError(400, "Geçersiz istek.");
+  }
+}
+
+function maskPhone(phone) {
+  return String(phone).replace(/^(.*)(\d{2})$/, (_, a, b) =>
+    a.replace(/\d/g, "*") + b
+  );
+}
+
+// 05321234567, 5321234567, +90 532 123 45 67 -> 905321234567
+function normalizePhone(phone) {
+  let digits = String(phone || "").replace(/\D/g, "");
+  if (digits.startsWith("0")) digits = digits.slice(1);
+  if (digits.length === 10) digits = `90${digits}`;
+  if (!/^905\d{9}$/.test(digits)) {
+    throw new HttpError(400, "Geçerli bir cep telefonu numarası girin.");
+  }
+  return digits;
+}
+
+function hmac(value) {
+  return crypto
+    .createHmac("sha256", COOKIE_SECRET)
+    .update(String(value))
+    .digest("hex");
+}
+
+function safeEqual(a, b) {
+  const x = Buffer.from(String(a));
+  const y = Buffer.from(String(b));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
+
+// WhatsApp ile doğrulanmış telefon çerezi: "<telefon>.<imza>"
+function getVerifiedPhone(req) {
+  const [phone, signature] = decodeURIComponent(
+    parseCookies(req).wa_phone || ""
+  ).split(".");
+  return phone && signature && safeEqual(hmac(`wa_phone:${phone}`), signature)
+    ? phone
+    : null;
+}
+
+function whatsappConfigured() {
+  return Boolean(
+    process.env.WHATSAPP_TOKEN &&
+      process.env.WHATSAPP_PHONE_NUMBER_ID &&
+      process.env.WHATSAPP_TEMPLATE
+  );
+}
+
+// Onaylı authentication şablonu ile doğrulama kodu gönderir.
+async function sendWhatsAppCode(phone, code) {
+  const response = await fetch(
+    `https://graph.facebook.com/v21.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to: phone,
+        type: "template",
+        template: {
+          name: process.env.WHATSAPP_TEMPLATE,
+          language: { code: process.env.WHATSAPP_TEMPLATE_LANG || "tr" },
+          components: [
+            { type: "body", parameters: [{ type: "text", text: code }] },
+            {
+              type: "button",
+              sub_type: "url",
+              index: "0",
+              parameters: [{ type: "text", text: code }]
+            }
+          ]
+        }
+      })
+    }
+  );
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok || json.error) {
+    console.error("WhatsApp gönderim hatası:", json.error || response.status);
+    throw new HttpError(502, "WhatsApp mesajı gönderilemedi.");
   }
 }
 
@@ -189,7 +291,7 @@ const routes = {
       { user, testMode: process.env.FATURA_TEST === "1" },
       {
         "set-cookie": `sid=${sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_TTL /
-          1000}`
+          1000}${COOKIE_SECURE}`
       }
     );
   },
@@ -308,9 +410,7 @@ const routes = {
     const oid = await fatura.sendSignSMSCode(token, phone);
     sendJSON(res, 200, {
       oid,
-      phone: String(phone).replace(/^(.*)(\d{2})$/, (_, a, b) =>
-        a.replace(/\d/g, "*") + b
-      )
+      phone: maskPhone(phone)
     });
   },
 
@@ -335,8 +435,87 @@ const routes = {
       drafts
     );
     sendJSON(res, 200, { result, count: drafts.length });
+  },
+
+  // Bu cihazda WhatsApp ile doğrulanmış telefon var mı? (giriş ekranı için)
+  "GET /api/whatsapp/remembered": async (req, res) => {
+    const phone = getVerifiedPhone(req);
+    sendJSON(res, 200, { phone: phone && maskPhone(phone) });
+  },
+
+  // Çıkışta doğrulama penceresi için: GİB'de kayıtlı telefon önerilir.
+  "GET /api/whatsapp/status": async (req, res) => {
+    const { token } = getSession(req);
+    const verified = Boolean(getVerifiedPhone(req));
+    const suggested = verified
+      ? null
+      : await fatura.getPhoneNumber(token).catch(() => null);
+    sendJSON(res, 200, {
+      verified,
+      configured: whatsappConfigured(),
+      suggestedPhone: suggested ? `0${normalizePhoneSafe(suggested)}` : ""
+    });
+  },
+
+  "POST /api/whatsapp/send": async (req, res) => {
+    const { sid } = getSession(req);
+    const session = sessions.get(sid);
+    if (!whatsappConfigured()) {
+      throw new HttpError(503, "WhatsApp doğrulaması bu sunucuda yapılandırılmamış.");
+    }
+    const phone = normalizePhone((await readBody(req)).phone);
+    const previous = session.whatsapp;
+    if (previous && Date.now() - previous.sentAt < WHATSAPP_RESEND_WAIT) {
+      throw new HttpError(429, "Yeni kod için lütfen bir dakika bekleyin.");
+    }
+    const code = String(crypto.randomInt(0, 1e6)).padStart(6, "0");
+    await sendWhatsAppCode(phone, code);
+    session.whatsapp = {
+      phone,
+      codeHash: hmac(`wa_code:${phone}:${code}`),
+      sentAt: Date.now(),
+      attempts: 0
+    };
+    sendJSON(res, 200, { phone: maskPhone(phone) });
+  },
+
+  "POST /api/whatsapp/verify": async (req, res) => {
+    const { sid } = getSession(req);
+    const session = sessions.get(sid);
+    const pending = session.whatsapp;
+    const { code } = await readBody(req);
+    if (!pending || Date.now() - pending.sentAt > WHATSAPP_CODE_TTL) {
+      delete session.whatsapp;
+      throw new HttpError(400, "Kodun süresi doldu, yeni kod isteyin.");
+    }
+    if (++pending.attempts > WHATSAPP_MAX_ATTEMPTS) {
+      delete session.whatsapp;
+      throw new HttpError(429, "Çok fazla hatalı deneme, yeni kod isteyin.");
+    }
+    if (!safeEqual(hmac(`wa_code:${pending.phone}:${code}`), pending.codeHash)) {
+      throw new HttpError(400, "WhatsApp kodu hatalı.");
+    }
+    delete session.whatsapp;
+    const value = `${pending.phone}.${hmac(`wa_phone:${pending.phone}`)}`;
+    sendJSON(
+      res,
+      200,
+      { phone: maskPhone(pending.phone) },
+      {
+        "set-cookie": `wa_phone=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${PHONE_COOKIE_TTL}${COOKIE_SECURE}`
+      }
+    );
   }
 };
+
+// GİB'den gelen numarayı öneri olarak gösterirken hata fırlatmadan biçimlendirir.
+function normalizePhoneSafe(phone) {
+  try {
+    return normalizePhone(phone).slice(2);
+  } catch (e) {
+    return "";
+  }
+}
 
 function serveStatic(res, file, type) {
   fs.readFile(path.join(__dirname, "public", file), (err, content) => {
