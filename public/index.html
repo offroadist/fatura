@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>e-Arşiv Fatura</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --surface: #fff; --text: #1d2330; --muted: #667085;
+    --border: #e2e5ea; --primary: #1f5eff; --primary-text: #fff;
+    --ok: #12805c; --ok-bg: #e6f6ef; --warn: #a15c00; --warn-bg: #fff4e0;
+    --danger: #c0262d; --danger-bg: #fdecec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --surface: #1b1f27; --text: #e7e9ee; --muted: #9aa3b2;
+      --border: #2c323d; --primary: #5b8cff; --ok: #4cc79a; --ok-bg: #143327;
+      --warn: #f0b45a; --warn-bg: #3a2a10; --danger: #ff7a7f; --danger-bg: #3d1a1c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 12px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; flex: 1; }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .login { max-width: 380px; margin: 8vh auto; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  input, select { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px;
+    background: var(--surface); color: var(--text); font: inherit; }
+  button { padding: 8px 14px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface);
+    color: var(--text); font: inherit; cursor: pointer; }
+  button.primary { background: var(--primary); border-color: var(--primary); color: var(--primary-text); }
+  button.danger { color: var(--danger); }
+  button:disabled { opacity: .55; cursor: default; }
+  .row { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: 12px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+  .tabs button.active { background: var(--primary); border-color: var(--primary); color: var(--primary-text); }
+  .muted { color: var(--muted); font-size: 13px; }
+  .msg { padding: 10px 12px; border-radius: 7px; margin-bottom: 12px; display: none; }
+  .msg.show { display: block; }
+  .msg.err { background: var(--danger-bg); color: var(--danger); }
+  .msg.ok { background: var(--ok-bg); color: var(--ok); }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; font-size: 13px; }
+  td.num, th.num { text-align: right; }
+  .badge { padding: 2px 8px; border-radius: 99px; font-size: 12px; }
+  .badge.ok { background: var(--ok-bg); color: var(--ok); }
+  .badge.wait { background: var(--warn-bg); color: var(--warn); }
+  .badge.del { background: var(--danger-bg); color: var(--danger); }
+  .items td { padding: 4px; }
+  .items input, .items select { min-width: 80px; }
+  .totals { margin-left: auto; max-width: 300px; }
+  .totals div { display: flex; justify-content: space-between; padding: 2px 0; }
+  .totals .grand { font-weight: 600; font-size: 16px; border-top: 1px solid var(--border); margin-top: 4px; padding-top: 6px; }
+  dialog { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); padding: 0; max-width: 95vw; }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  .dialog-body { padding: 16px; width: 380px; max-width: 95vw; }
+  .preview { width: 900px; height: 80vh; max-width: 95vw; display: flex; flex-direction: column; }
+  .preview iframe { flex: 1; border: 0; background: #fff; }
+  .preview .bar { padding: 8px; display: flex; gap: 8px; justify-content: flex-end; border-bottom: 1px solid var(--border); }
+  .hidden { display: none !important; }
+  .test-tag { background: var(--warn-bg); color: var(--warn); }
+</style>
+</head>
+<body>
+
+<header id="topbar" class="hidden">
+  <h1>e-Arşiv Fatura <span id="testTag" class="badge test-tag hidden">TEST ORTAMI</span></h1>
+  <span id="userName" class="muted"></span>
+  <button id="logoutBtn">Çıkış</button>
+</header>
+
+<main>
+  <!-- Giriş -->
+  <section id="loginView" class="card login hidden">
+    <h2 style="margin-top:0">GİB e-Arşiv Girişi</h2>
+    <p class="muted">Muhasebecinizden aldığınız e-Arşiv portal kullanıcı kodu ve şifresiyle giriş yapın. Şifreniz saklanmaz.</p>
+    <div id="loginMsg" class="msg err"></div>
+    <form id="loginForm">
+      <div style="margin-bottom:12px"><label for="username">Kullanıcı kodu</label>
+        <input id="username" autocomplete="username" required></div>
+      <div style="margin-bottom:16px"><label for="password">Şifre</label>
+        <input id="password" type="password" autocomplete="current-password" required></div>
+      <button class="primary" style="width:100%">Giriş yap</button>
+    </form>
+  </section>
+
+  <!-- Panel -->
+  <section id="appView" class="hidden">
+    <div class="tabs">
+      <button data-tab="list" class="active">Faturalar</button>
+      <button data-tab="new">Yeni fatura</button>
+    </div>
+    <div id="appMsg" class="msg"></div>
+
+    <div id="tab-list" class="card">
+      <div class="actions" style="margin-bottom:12px">
+        <div><label for="startDate">Başlangıç</label><input type="date" id="startDate"></div>
+        <div><label for="endDate">Bitiş</label><input type="date" id="endDate"></div>
+        <button id="refreshBtn">Listele</button>
+        <span style="flex:1"></span>
+        <button id="approveBtn" class="primary" disabled>Seçilenleri GİB onayına gönder (SMS)</button>
+      </div>
+      <p class="muted">“Onaylanmadı” durumundaki faturalar taslaktır ve henüz mali değeri yoktur. SMS ile onaylanan fatura GİB'de kesilmiş olur ve geri alınamaz.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th><input type="checkbox" id="checkAll" aria-label="Tümünü seç"></th>
+            <th>Tarih</th><th>Belge no</th><th>Alıcı</th><th>VKN/TCKN</th><th>Durum</th><th></th>
+          </tr></thead>
+          <tbody id="invoiceRows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <form id="tab-new" class="card hidden">
+      <h3 style="margin-top:0">Alıcı</h3>
+      <div class="row">
+        <div><label for="f-vkn">VKN / TCKN</label>
+          <div style="display:flex;gap:6px"><input id="f-vkn" inputmode="numeric" maxlength="11" required>
+          <button type="button" id="lookupBtn" title="GİB'den alıcı bilgilerini getir">Sorgula</button></div></div>
+        <div><label for="f-title">Unvan (şirket)</label><input id="f-title"></div>
+        <div><label for="f-name">Ad</label><input id="f-name"></div>
+        <div><label for="f-surname">Soyad</label><input id="f-surname"></div>
+      </div>
+      <div class="row">
+        <div><label for="f-taxOffice">Vergi dairesi</label><input id="f-taxOffice"></div>
+        <div><label for="f-address">Adres</label><input id="f-address"></div>
+        <div><label for="f-district">İlçe</label><input id="f-district"></div>
+        <div><label for="f-city">İl</label><input id="f-city"></div>
+      </div>
+      <div class="row">
+        <div><label for="f-date">Fatura tarihi</label><input type="date" id="f-date" required></div>
+        <div><label for="f-email">E-posta (isteğe bağlı)</label><input type="email" id="f-email"></div>
+      </div>
+
+      <h3>Kalemler</h3>
+      <div class="table-wrap">
+        <table class="items">
+          <thead><tr><th>Mal / hizmet</th><th>Miktar</th><th>Birim</th><th>Birim fiyat</th><th>KDV %</th><th class="num">Tutar</th><th></th></tr></thead>
+          <tbody id="itemRows"></tbody>
+        </table>
+      </div>
+      <button type="button" id="addItemBtn" style="margin:8px 0 16px">+ Kalem ekle</button>
+
+      <div class="totals">
+        <div><span>Mal/hizmet toplamı</span><span id="t-sub">0,00 ₺</span></div>
+        <div><span>Hesaplanan KDV</span><span id="t-vat">0,00 ₺</span></div>
+        <div class="grand"><span>Ödenecek tutar</span><span id="t-total">0,00 ₺</span></div>
+      </div>
+      <div class="actions" style="justify-content:flex-end;margin-top:16px">
+        <button class="primary" id="saveBtn">Taslak oluştur</button>
+      </div>
+    </form>
+  </section>
+</main>
+
+<dialog id="smsDialog">
+  <form method="dialog" class="dialog-body" id="smsForm">
+    <h3 style="margin-top:0">GİB onayı</h3>
+    <p id="smsInfo" class="muted"></p>
+    <div id="smsMsg" class="msg err"></div>
+    <label for="smsCode">SMS şifresi</label>
+    <input id="smsCode" inputmode="numeric" autocomplete="one-time-code" maxlength="8" required>
+    <div class="actions" style="justify-content:flex-end;margin-top:16px">
+      <button type="button" id="smsCancel">Vazgeç</button>
+      <button class="primary" id="smsVerify">Onayla ve faturayı kes</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="previewDialog">
+  <div class="preview">
+    <div class="bar">
+      <a id="downloadLink"><button type="button">ZIP indir</button></a>
+      <button type="button" id="printBtn">Yazdır</button>
+      <button type="button" id="previewClose">Kapat</button>
+    </div>
+    <iframe id="previewFrame" title="Fatura önizleme" sandbox="allow-modals allow-same-origin"></iframe>
+  </div>
+</dialog>
+
+<script>
+const $ = id => document.getElementById(id);
+const UNITS = [["C62","Adet"],["HUR","Saat"],["DAY","Gün"],["MON","Ay"],["KGM","Kg"],["LTR","Litre"],["MTR","Metre"],["MTK","m²"],["KWH","kWh"]];
+const VAT_RATES = [20, 10, 1, 0];
+let invoices = [];
+let sms = null;
+
+const money = n => n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " ₺";
+const round = n => Math.round((n + Number.EPSILON) * 100) / 100;
+const toGIB = iso => iso.split("-").reverse().join("/");
+const toISO = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: { "content-type": "application/json" },
+    body: opts.body && JSON.stringify(opts.body)
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && path !== "/api/login") showLogin(data.error);
+  if (!res.ok) throw new Error(data.error || "İşlem başarısız.");
+  return data;
+}
+
+function flash(el, text, type = "err") {
+  el.className = `msg ${type} ${text ? "show" : ""}`;
+  el.textContent = text || "";
+}
+
+function showLogin(message) {
+  $("topbar").classList.add("hidden");
+  $("appView").classList.add("hidden");
+  $("loginView").classList.remove("hidden");
+  flash($("loginMsg"), message);
+}
+
+function showApp({ user, testMode }) {
+  $("loginView").classList.add("hidden");
+  $("topbar").classList.remove("hidden");
+  $("appView").classList.remove("hidden");
+  $("testTag").classList.toggle("hidden", !testMode);
+  $("userName").textContent = user ? (user.title || `${user.name || ""} ${user.surname || ""}`).trim() : "";
+  loadInvoices();
+}
+
+// Giriş / çıkış
+$("loginForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const btn = e.submitter; btn.disabled = true; btn.textContent = "Bağlanıyor…";
+  try {
+    const data = await api("/api/login", { method: "POST", body: { username: $("username").value, password: $("password").value } });
+    $("password").value = "";
+    showApp(data);
+  } catch (err) { flash($("loginMsg"), err.message); }
+  btn.disabled = false; btn.textContent = "Giriş yap";
+});
+$("logoutBtn").onclick = async () => { await api("/api/logout", { method: "POST" }).catch(() => {}); showLogin(); };
+
+// Sekmeler
+document.querySelectorAll("[data-tab]").forEach(btn => btn.onclick = () => {
+  document.querySelectorAll("[data-tab]").forEach(b => b.classList.toggle("active", b === btn));
+  $("tab-list").classList.toggle("hidden", btn.dataset.tab !== "list");
+  $("tab-new").classList.toggle("hidden", btn.dataset.tab !== "new");
+  flash($("appMsg"));
+});
+
+// Fatura listesi
+function range() { return { startDate: toGIB($("startDate").value), endDate: toGIB($("endDate").value) }; }
+
+async function loadInvoices() {
+  const { startDate, endDate } = range();
+  $("invoiceRows").innerHTML = `<tr><td colspan="7" class="muted">Yükleniyor…</td></tr>`;
+  try {
+    const data = await api(`/api/invoices?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`);
+    invoices = data.invoices;
+    renderInvoices();
+  } catch (err) {
+    $("invoiceRows").innerHTML = "";
+    flash($("appMsg"), err.message);
+  }
+}
+
+function renderInvoices() {
+  $("checkAll").checked = false;
+  if (!invoices.length) {
+    $("invoiceRows").innerHTML = `<tr><td colspan="7" class="muted">Bu tarih aralığında fatura yok.</td></tr>`;
+    return updateApproveBtn();
+  }
+  $("invoiceRows").innerHTML = invoices.map((inv, i) => {
+    const draft = inv.onayDurumu === "Onaylanmadı";
+    const cls = draft ? "wait" : inv.onayDurumu === "Onaylandı" ? "ok" : "del";
+    return `<tr>
+      <td>${draft ? `<input type="checkbox" class="pick" data-i="${i}" aria-label="Seç">` : ""}</td>
+      <td>${esc(inv.belgeTarihi)}</td>
+      <td>${esc(inv.belgeNumarasi)}</td>
+      <td>${esc(inv.aliciUnvanAdSoyad)}</td>
+      <td>${esc(inv.aliciVknTckn)}</td>
+      <td><span class="badge ${cls}">${esc(inv.onayDurumu)}</span></td>
+      <td><button data-view="${i}">Görüntüle</button>
+        ${draft ? `<button class="danger" data-del="${i}">Sil</button>` : ""}</td>
+    </tr>`;
+  }).join("");
+  updateApproveBtn();
+}
+
+function picked() { return [...document.querySelectorAll(".pick:checked")].map(c => invoices[c.dataset.i]); }
+function updateApproveBtn() {
+  const n = picked().length;
+  $("approveBtn").disabled = !n;
+  $("approveBtn").textContent = n ? `${n} faturayı GİB onayına gönder (SMS)` : "Seçilenleri GİB onayına gönder (SMS)";
+}
+
+$("invoiceRows").addEventListener("change", updateApproveBtn);
+$("checkAll").onchange = e => { document.querySelectorAll(".pick").forEach(c => c.checked = e.target.checked); updateApproveBtn(); };
+$("refreshBtn").onclick = () => { flash($("appMsg")); loadInvoices(); };
+
+$("invoiceRows").addEventListener("click", async e => {
+  const view = e.target.dataset.view, del = e.target.dataset.del;
+  if (view !== undefined) {
+    const inv = invoices[view];
+    const q = `ettn=${encodeURIComponent(inv.ettn)}&signed=${inv.onayDurumu === "Onaylandı" ? 1 : 0}`;
+    $("previewFrame").src = `/api/invoice-html?${q}`;
+    $("downloadLink").href = `/api/invoice-download?${q}`;
+    $("previewDialog").showModal();
+  }
+  if (del !== undefined) {
+    const inv = invoices[del];
+    const reason = prompt(`${inv.aliciUnvanAdSoyad} taslağı silinecek. Silme nedeni:`, "Hatalı düzenlendi");
+    if (reason === null) return;
+    try {
+      await api("/api/invoices/cancel", { method: "POST", body: { ...range(), ettn: inv.ettn, reason } });
+      flash($("appMsg"), "Taslak silindi.", "ok");
+      loadInvoices();
+    } catch (err) { flash($("appMsg"), err.message); }
+  }
+});
+
+$("previewClose").onclick = () => { $("previewDialog").close(); $("previewFrame").src = "about:blank"; };
+$("printBtn").onclick = () => $("previewFrame").contentWindow.print();
+
+// GİB onayı (SMS)
+$("approveBtn").onclick = async () => {
+  const selected = picked();
+  const total = selected.length;
+  $("approveBtn").disabled = true;
+  try {
+    const data = await api("/api/sms/send", { method: "POST" });
+    sms = { oid: data.oid, ettns: selected.map(inv => inv.ettn) };
+    $("smsInfo").textContent = `${total} fatura onaylanacak. ${data.phone} numaralı telefona gönderilen SMS şifresini girin.`;
+    $("smsCode").value = "";
+    flash($("smsMsg"));
+    $("smsDialog").showModal();
+  } catch (err) { flash($("appMsg"), err.message); }
+  updateApproveBtn();
+};
+$("smsCancel").onclick = () => $("smsDialog").close();
+$("smsForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const btn = $("smsVerify"); btn.disabled = true;
+  try {
+    const data = await api("/api/sms/verify", { method: "POST", body: { ...range(), ...sms, code: $("smsCode").value.trim() } });
+    $("smsDialog").close();
+    flash($("appMsg"), `${data.count} fatura GİB'de onaylandı.`, "ok");
+    loadInvoices();
+  } catch (err) { flash($("smsMsg"), err.message); }
+  btn.disabled = false;
+});
+
+// Yeni fatura
+function addItem() {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `
+    <td><input class="i-name" placeholder="Ürün veya hizmet adı" style="min-width:200px"></td>
+    <td><input class="i-qty" type="number" min="0" step="any" value="1"></td>
+    <td><select class="i-unit">${UNITS.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></td>
+    <td><input class="i-price" type="number" min="0" step="0.01" placeholder="0,00"></td>
+    <td><select class="i-vat">${VAT_RATES.map(r => `<option value="${r}">%${r}</option>`).join("")}</select></td>
+    <td class="num i-total">0,00 ₺</td>
+    <td><button type="button" class="danger i-remove" aria-label="Kalemi sil">×</button></td>`;
+  $("itemRows").appendChild(tr);
+  calc();
+}
+
+function readItems() {
+  return [...$("itemRows").children].map(tr => ({
+    name: tr.querySelector(".i-name").value,
+    quantity: Number(tr.querySelector(".i-qty").value) || 0,
+    unitType: tr.querySelector(".i-unit").value,
+    unitPrice: Number(tr.querySelector(".i-price").value) || 0,
+    VATRate: Number(tr.querySelector(".i-vat").value)
+  }));
+}
+
+function calc() {
+  let sub = 0, vat = 0;
+  [...$("itemRows").children].forEach((tr, i) => {
+    const it = readItems()[i];
+    const price = round(it.quantity * it.unitPrice);
+    sub += price; vat += round(price * it.VATRate / 100);
+    tr.querySelector(".i-total").textContent = money(price);
+  });
+  $("t-sub").textContent = money(round(sub));
+  $("t-vat").textContent = money(round(vat));
+  $("t-total").textContent = money(round(sub + vat));
+}
+
+$("addItemBtn").onclick = addItem;
+$("itemRows").addEventListener("input", calc);
+$("itemRows").addEventListener("click", e => {
+  if (e.target.classList.contains("i-remove") && $("itemRows").children.length > 1) {
+    e.target.closest("tr").remove(); calc();
+  }
+});
+
+$("lookupBtn").onclick = async () => {
+  const id = $("f-vkn").value.trim();
+  try {
+    const { recipient } = await api(`/api/recipient?id=${encodeURIComponent(id)}`);
+    $("f-title").value = recipient.unvan || "";
+    $("f-name").value = recipient.adi || "";
+    $("f-surname").value = recipient.soyadi || "";
+    $("f-taxOffice").value = recipient.vergiDairesi || "";
+    flash($("appMsg"), recipient.unvan || recipient.adi ? "" : "GİB'de kayıt bulunamadı, bilgileri elle girin.", "err");
+  } catch (err) { flash($("appMsg"), err.message); }
+};
+
+$("tab-new").addEventListener("submit", async e => {
+  e.preventDefault();
+  const btn = $("saveBtn"); btn.disabled = true;
+  try {
+    const body = {
+      taxIDOrTRID: $("f-vkn").value.trim(),
+      title: $("f-title").value.trim(), name: $("f-name").value.trim(), surname: $("f-surname").value.trim(),
+      taxOffice: $("f-taxOffice").value.trim(), fullAddress: $("f-address").value.trim(),
+      district: $("f-district").value.trim(), city: $("f-city").value.trim(),
+      email: $("f-email").value.trim(), date: toGIB($("f-date").value), items: readItems()
+    };
+    await api("/api/invoices", { method: "POST", body });
+    flash($("appMsg"), "Taslak fatura oluşturuldu. GİB'de kesilmesi için listeden seçip SMS ile onaylayın.", "ok");
+    e.target.reset(); $("itemRows").innerHTML = ""; addItem(); $("f-date").value = toISO(new Date());
+    document.querySelector('[data-tab="list"]').click();
+    flash($("appMsg"), "Taslak fatura oluşturuldu. GİB'de kesilmesi için listeden seçip SMS ile onaylayın.", "ok");
+    loadInvoices();
+  } catch (err) { flash($("appMsg"), err.message); }
+  btn.disabled = false;
+});
+
+// Başlangıç
+const today = new Date();
+$("endDate").value = toISO(today);
+$("startDate").value = toISO(new Date(today.getFullYear(), today.getMonth(), 1));
+$("f-date").value = toISO(today);
+addItem();
+api("/api/me").then(showApp).catch(() => showLogin());
+</script>
+</body>
+</html>

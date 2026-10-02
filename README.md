@@ -18,6 +18,23 @@ eArşiv sistemi üzerinde fatura oluşturmanızı sağlar.
 > [https://earsivportal.efatura.gov.tr/intragiris.html](https://earsivportal.efatura.gov.tr/intragiris.html) adresindeki parola ekranında kullanılan kullanıcı kodu ve parola ile bu paketi kullanabilirsiniz.
 > ℹ️ Bu **kullanıcı kodu ve parola bilgilerini** muhasebecinizden ya da **GİB - İnteraktif Vergi Dairesi**'nden edinebilirsiniz.
 
+## Web Paneli
+
+Kod yazmadan kullanmak için basit bir panel bulunur:
+
+```
+npm install
+npm start            # http://127.0.0.1:3000
+FATURA_TEST=1 npm start   # GİB test portalı
+```
+
+1. Muhasebecinizden aldığınız e-Arşiv kullanıcı kodu ve şifresiyle giriş yapın (şifre saklanmaz, yalnızca GİB oturumu tutulur).
+2. **Yeni fatura** sekmesinden alıcıyı ve kalemleri girip taslak oluşturun. Toplamlar ve KDV otomatik hesaplanır.
+3. **Faturalar** sekmesinde "Onaylanmadı" durumundaki taslakları seçip **GİB onayına gönder**'e basın; GİB'de kayıtlı telefona gelen SMS şifresiyle fatura kesilir.
+4. Portaldaki tüm faturaları tarih aralığına göre listeleyebilir, görüntüleyip yazdırabilir ya da ZIP olarak indirebilirsiniz.
+
+> Panel varsayılan olarak yalnızca `127.0.0.1` üzerinde dinler. Sunucuya kurulacaksa önüne HTTPS'li bir ters vekil (nginx vb.) koyun.
+
 ## Yükleme
 
 ```
