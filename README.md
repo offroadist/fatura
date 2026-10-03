@@ -54,6 +54,28 @@ Bu değerleri sunucunun ortam değişkenlerine yazın; repoya eklemeyin.
 
 > Panel varsayılan olarak yalnızca `127.0.0.1` üzerinde dinler. Sunucuya kurulacaksa önüne HTTPS'li bir ters vekil (nginx vb.) koyun.
 
+#### Araç yıkama: kamera ile sınıflandırma ve hızlı fatura (`/arac`)
+
+`/arac` sayfası kamerayı açar, görüntüdeki aracı cihaz üzerinde (TensorFlow.js COCO-SSD) **Kamyonet** ya da
+**Hususi araç** olarak sınıflandırır, Ayarlar'daki fiyatı gösterir ve onaydan sonra iki belge seçeneği sunar:
+
+- **Bilgi Fişi**: mali değeri olmayan, sıra numaralı, yazdırılabilir fiş (`DATA_DIR/bilgi-fisleri.json`).
+- **e-Arşiv Fatura**: kayıtlı GİB bilgisiyle oturum açılır, tek kalemlik taslak kesilir ve günün onaylı/onaysız
+  faturaları listelenir. SMS ile GİB onayı panelden yapılır.
+
+Girişte “bilgileri bu sunucuda kaydet” işaretlenirse GİB kullanıcı kodu ve şifresi `DATA_DIR/ayarlar.json` içinde
+AES-256-GCM ile (`DATA_SECRET`, yoksa `COOKIE_SECRET`) şifreli saklanır; araç sayfası açılınca otomatik giriş yapılır.
+
+```
+DATA_DIR=/var/lib/fatura        # ayarlar ve bilgi fişleri (varsayılan ./data)
+DATA_SECRET=...                 # kayıtlı GİB şifresi için anahtar
+```
+
+#### Alt yolda yayınlama (örn. sorgu.co/fat)
+
+`BASE_PATH=/fat` ile başlatılan panel `/fat/...` isteklerini kabul eder, `/fat` adresini `/fat/` adresine yönlendirir ve çerezleri
+yalnızca bu yola yazar. Hazır kurulum (systemd + nginx) için `deploy/SORGU-GOREV.md` ve `deploy/sorgu/` klasörüne bakın.
+
 ## Yükleme
 
 ```
