@@ -73,6 +73,7 @@
 <header id="topbar" class="hidden">
   <h1>e-Arşiv Fatura <span id="testTag" class="badge test-tag hidden">TEST ORTAMI</span></h1>
   <span id="userName" class="muted"></span>
+  <a href="arac" style="color:var(--primary);text-decoration:none;font-size:14px">Araç yıkama</a>
   <button id="logoutBtn">Çıkış</button>
 </header>
 
@@ -80,14 +81,17 @@
   <!-- Giriş -->
   <section id="loginView" class="card login hidden">
     <h2 style="margin-top:0">GİB e-Arşiv Girişi</h2>
-    <p class="muted">Muhasebecinizden aldığınız e-Arşiv portal kullanıcı kodu ve şifresiyle giriş yapın. Şifreniz saklanmaz.</p>
+    <p class="muted">Muhasebecinizden aldığınız e-Arşiv portal kullanıcı kodu ve şifresiyle giriş yapın. Şifreniz, “bilgileri kaydet” işaretlenmediği sürece saklanmaz.</p>
+    <button id="savedLoginBtn" class="primary hidden" style="width:100%;margin-bottom:12px"></button>
     <p id="rememberedPhone" class="msg ok"></p>
     <div id="loginMsg" class="msg err"></div>
     <form id="loginForm">
       <div style="margin-bottom:12px"><label for="username">Kullanıcı kodu</label>
         <input id="username" autocomplete="username" required></div>
-      <div style="margin-bottom:16px"><label for="password">Şifre</label>
+      <div style="margin-bottom:12px"><label for="password">Şifre</label>
         <input id="password" type="password" autocomplete="current-password" required></div>
+      <label style="display:flex;gap:8px;align-items:center;margin-bottom:16px;color:var(--text)">
+        <input type="checkbox" id="remember" style="width:auto"> Bilgileri bu sunucuda kaydet (araç yıkama sayfasında otomatik giriş)</label>
       <button class="primary" style="width:100%">Giriş yap</button>
     </form>
   </section>
@@ -247,7 +251,17 @@ function showLogin(message) {
   api("api/whatsapp/remembered")
     .then(({ phone }) => flash($("rememberedPhone"), phone && `Bu cihaz WhatsApp ile doğrulandı: ${phone}`, "ok"))
     .catch(() => {});
+  api("api/login/saved").then(({ saved, username }) => {
+    $("savedLoginBtn").classList.toggle("hidden", !saved);
+    $("savedLoginBtn").textContent = `Kayıtlı bilgilerle giriş (${username})`;
+  }).catch(() => {});
 }
+$("savedLoginBtn").onclick = async () => {
+  $("savedLoginBtn").disabled = true;
+  try { showApp(await api("api/login", { method: "POST", body: { saved: true } })); }
+  catch (err) { flash($("loginMsg"), err.message); }
+  $("savedLoginBtn").disabled = false;
+};
 
 function showApp({ user, testMode }) {
   $("loginView").classList.add("hidden");
@@ -263,7 +277,7 @@ $("loginForm").addEventListener("submit", async e => {
   e.preventDefault();
   const btn = e.submitter; btn.disabled = true; btn.textContent = "Bağlanıyor…";
   try {
-    const data = await api("api/login", { method: "POST", body: { username: $("username").value, password: $("password").value } });
+    const data = await api("api/login", { method: "POST", body: { username: $("username").value, password: $("password").value, remember: $("remember").checked } });
     $("password").value = "";
     showApp(data);
   } catch (err) { flash($("loginMsg"), err.message); }

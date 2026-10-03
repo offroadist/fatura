@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Araç Yıkama – Hızlı Fatura</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --surface: #fff; --text: #1d2330; --muted: #667085;
+    --border: #e2e5ea; --primary: #1f5eff; --primary-text: #fff;
+    --ok: #12805c; --ok-bg: #e6f6ef; --warn: #a15c00; --warn-bg: #fff4e0;
+    --danger: #c0262d; --danger-bg: #fdecec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --surface: #1b1f27; --text: #e7e9ee; --muted: #9aa3b2;
+      --border: #2c323d; --primary: #5b8cff; --ok: #4cc79a; --ok-bg: #143327;
+      --warn: #f0b45a; --warn-bg: #3a2a10; --danger: #ff7a7f; --danger-bg: #3d1a1c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 12px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; flex: 1; }
+  header a { color: var(--primary); text-decoration: none; font-size: 14px; }
+  main { max-width: 760px; margin: 0 auto; padding: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  h2 { font-size: 16px; margin: 0 0 10px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  input, select, textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px;
+    background: var(--surface); color: var(--text); font: inherit; }
+  button { padding: 8px 14px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface);
+    color: var(--text); font: inherit; cursor: pointer; }
+  button.primary { background: var(--primary); border-color: var(--primary); color: var(--primary-text); }
+  button.big { padding: 16px; font-size: 16px; flex: 1; min-width: 160px; }
+  button.danger { color: var(--danger); }
+  button:disabled { opacity: .55; cursor: default; }
+  .row { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin-bottom: 12px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .msg { padding: 10px 12px; border-radius: 7px; margin-bottom: 12px; display: none; }
+  .msg.show { display: block; }
+  .msg.err { background: var(--danger-bg); color: var(--danger); }
+  .msg.ok { background: var(--ok-bg); color: var(--ok); }
+  .msg.warn { background: var(--warn-bg); color: var(--warn); }
+  .steps { display: flex; gap: 6px; margin-bottom: 16px; font-size: 13px; }
+  .steps span { flex: 1; text-align: center; padding: 6px 4px; border-radius: 7px; background: var(--surface); border: 1px solid var(--border); color: var(--muted); }
+  .steps span.active { border-color: var(--primary); color: var(--primary); font-weight: 600; }
+  .steps span.done { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
+  .cam { position: relative; background: #000; border-radius: 10px; overflow: hidden; aspect-ratio: 4 / 3; margin-bottom: 12px; }
+  .cam video, .cam canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .cam .label { position: absolute; left: 10px; bottom: 10px; padding: 6px 12px; border-radius: 99px;
+    background: rgba(0,0,0,.65); color: #fff; font-weight: 600; font-size: 15px; }
+  .cam .label.kamyonet { background: rgba(161,92,0,.85); }
+  .cam .label.hususi { background: rgba(18,128,92,.85); }
+  .snap { width: 120px; border-radius: 8px; border: 1px solid var(--border); }
+  .price { font-size: 32px; font-weight: 700; }
+  .type { font-size: 20px; font-weight: 600; }
+  .badge { padding: 2px 8px; border-radius: 99px; font-size: 12px; }
+  .badge.ok { background: var(--ok-bg); color: var(--ok); }
+  .badge.wait { background: var(--warn-bg); color: var(--warn); }
+  .test-tag { background: var(--warn-bg); color: var(--warn); }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; font-size: 13px; }
+  dialog { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); padding: 0; max-width: 95vw; }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  .dialog-body { padding: 16px; width: 420px; max-width: 95vw; }
+  .preview { width: 520px; height: 80vh; max-width: 95vw; display: flex; flex-direction: column; }
+  .preview iframe { flex: 1; border: 0; background: #fff; }
+  .preview .bar { padding: 8px; display: flex; gap: 8px; justify-content: flex-end; border-bottom: 1px solid var(--border); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Araç Yıkama <span id="testTag" class="badge test-tag hidden">TEST ORTAMI</span></h1>
+  <span id="userName" class="muted"></span>
+  <a href="./">Fatura paneli</a>
+  <button id="settingsBtn">Ayarlar</button>
+</header>
+
+<main>
+  <div class="steps">
+    <span id="st1" class="active">1. Araç</span>
+    <span id="st2">2. Fiyat onayı</span>
+    <span id="st3">3. Belge</span>
+  </div>
+  <div id="msg" class="msg"></div>
+
+  <!-- 1. Kamera ve sınıflandırma -->
+  <section id="step1" class="card">
+    <h2>Aracı kameraya gösterin</h2>
+    <div class="cam">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <div id="camLabel" class="label">Kamera kapalı</div>
+    </div>
+    <div class="actions">
+      <button id="camBtn" class="primary">Kamerayı aç</button>
+      <button id="lockBtn" disabled>Bu araç ✓</button>
+      <span style="flex:1"></span>
+      <span class="muted">Elle seç:</span>
+      <button data-type="kamyonet">Kamyonet</button>
+      <button data-type="hususi">Hususi araç</button>
+    </div>
+    <p class="muted" style="margin-bottom:0">Sınıflandırma cihazda çalışır, görüntü sunucuya gönderilmez. Kamera yalnızca HTTPS adreste açılır.</p>
+  </section>
+
+  <!-- 2. Fiyat onayı -->
+  <section id="step2" class="card hidden">
+    <h2>Fiyatı onaylayın</h2>
+    <div class="actions" style="margin-bottom:12px">
+      <img id="snap" class="snap hidden" alt="Araç görüntüsü">
+      <div>
+        <div id="typeLabel" class="type"></div>
+        <div class="muted" id="typeSource"></div>
+      </div>
+      <span style="flex:1"></span>
+      <div class="price"><span id="priceView">0,00</span> ₺</div>
+    </div>
+    <div class="row">
+      <div><label for="amount">Tutar (KDV dahil, ₺)</label><input id="amount" inputmode="decimal"></div>
+      <div><label for="plate">Plaka (isteğe bağlı)</label><input id="plate" placeholder="34 ABC 123" autocapitalize="characters"></div>
+    </div>
+    <div class="actions">
+      <button id="back1">Geri</button>
+      <span style="flex:1"></span>
+      <button id="confirmBtn" class="primary">Onayla</button>
+    </div>
+  </section>
+
+  <!-- 3. Belge seçimi -->
+  <section id="step3" class="card hidden">
+    <h2>Belge türünü seçin</h2>
+    <p class="muted"><span id="summary"></span></p>
+    <div id="docChoice" class="actions">
+      <button id="receiptBtn" class="big">Bilgi Fişi<br><span class="muted">mali değeri yoktur</span></button>
+      <button id="invoiceBtn" class="big primary">e-Arşiv Fatura<br><span style="opacity:.8;font-size:13px">GİB'de taslak kesilir</span></button>
+    </div>
+
+    <div id="invoiceForm" class="hidden" style="margin-top:12px">
+      <h2>Alıcı (boş bırakılırsa nihai tüketici)</h2>
+      <div class="row">
+        <div><label for="r-id">VKN / TCKN</label>
+          <div class="actions"><input id="r-id" inputmode="numeric" maxlength="11" style="flex:1"><button id="lookupBtn" type="button">Sorgula</button></div></div>
+        <div><label for="r-title">Unvan</label><input id="r-title"></div>
+        <div><label for="r-name">Ad</label><input id="r-name"></div>
+        <div><label for="r-surname">Soyad</label><input id="r-surname"></div>
+      </div>
+      <div class="actions">
+        <button id="back3">Geri</button>
+        <span style="flex:1"></span>
+        <button id="cutBtn" class="primary">Fatura kes</button>
+      </div>
+    </div>
+
+    <div id="invoiceResult" class="hidden" style="margin-top:12px">
+      <div id="cutMsg" class="msg ok show"></div>
+      <h2>Bugünkü faturalar</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Durum</th><th>Belge no</th><th>Alıcı</th><th>Tutar</th></tr></thead>
+          <tbody id="todayRows"></tbody>
+        </table>
+      </div>
+      <p class="muted">Onaylanmamış faturalar taslaktır. GİB onayı (SMS ile imzalama) için <a href="./">fatura panelini</a> kullanın; onaylanan fatura geri alınamaz.</p>
+    </div>
+
+    <div class="actions" style="margin-top:12px">
+      <button id="back2">Geri</button>
+      <span style="flex:1"></span>
+      <button id="newBtn" class="primary hidden">Yeni araç</button>
+    </div>
+  </section>
+</main>
+
+<!-- Bilgi fişi önizleme -->
+<dialog id="receiptDialog">
+  <div class="preview">
+    <div class="bar">
+      <button id="printBtn" class="primary">Yazdır</button>
+      <button onclick="document.getElementById('receiptDialog').close()">Kapat</button>
+    </div>
+    <iframe id="receiptFrame" title="Bilgi fişi"></iframe>
+  </div>
+</dialog>
+
+<!-- Ayarlar -->
+<dialog id="settingsDialog">
+  <form id="settingsForm" class="dialog-body" method="dialog">
+    <h2>Ayarlar</h2>
+    <div id="settingsMsg" class="msg"></div>
+    <div class="row">
+      <div><label for="s-ad">İşletme adı</label><input id="s-ad"></div>
+      <div><label for="s-adres">Adres</label><input id="s-adres"></div>
+    </div>
+    <div class="row">
+      <div><label for="s-kamyonet">Kamyonet fiyatı (KDV dahil)</label><input id="s-kamyonet" inputmode="decimal"></div>
+      <div><label for="s-hususi">Hususi araç fiyatı (KDV dahil)</label><input id="s-hususi" inputmode="decimal"></div>
+      <div><label for="s-kdv">KDV %</label><input id="s-kdv" inputmode="numeric"></div>
+    </div>
+    <p class="muted" id="gibInfo"></p>
+    <div class="actions">
+      <button type="button" id="gibForget" class="danger hidden">Kayıtlı GİB bilgisini sil</button>
+      <span style="flex:1"></span>
+      <button type="button" onclick="document.getElementById('settingsDialog').close()">Kapat</button>
+      <button type="submit" class="primary">Kaydet</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const TL = n => Number(n || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const TYPES = { kamyonet: "Kamyonet", hususi: "Hususi araç" };
+// COCO sınıfları -> araç cinsi. truck: kamyonet/pikap/panelvan, car: otomobil/SUV.
+const COCO_MAP = { truck: "kamyonet", car: "hususi" };
+
+let settings = { fiyat: { kamyonet: 0, hususi: 0, kdv: 20 }, isletme: {} };
+let chosen = null;      // { type, source, snapshot }
+let confirmed = null;   // { type, amount, plate }
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { "content-type": "application/json" }, body: opts.body && JSON.stringify(opts.body) });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && !path.startsWith("api/login")) {
+    if (!(await autoLogin())) { location.href = "./"; throw new Error("Oturum yok."); }
+    return api(path, opts);
+  }
+  if (!res.ok) throw new Error(data.error || "İşlem başarısız.");
+  return data;
+}
+async function autoLogin() {
+  try { return Boolean(await api("api/login", { method: "POST", body: { saved: true } })); } catch (e) { return false; }
+}
+function flash(el, text, type = "err") { el.className = `msg ${type} ${text ? "show" : ""}`; el.textContent = text || ""; }
+function goStep(n) {
+  [1, 2, 3].forEach(i => {
+    $(`step${i}`).classList.toggle("hidden", i !== n);
+    $(`st${i}`).className = i === n ? "active" : i < n ? "done" : "";
+  });
+  flash($("msg"));
+  if (n === 1) startCamera().catch(() => {});
+  else stopDetect();
+}
+
+// Kamera ve sınıflandırma
+let stream = null, model = null, detecting = false, votes = [];
+const video = $("video"), overlay = $("overlay");
+
+async function startCamera() {
+  if (stream) { startDetect(); return; }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    flash($("msg"), "Bu tarayıcı kamerayı desteklemiyor; aracı elle seçin.", "warn"); return;
+  }
+  $("camBtn").disabled = true; $("camLabel").textContent = "Kamera açılıyor…";
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 } }, audio: false });
+    video.srcObject = stream;
+    await video.play();
+    $("camBtn").textContent = "Kamera açık";
+    $("camLabel").textContent = "Model yükleniyor…";
+    if (!model) model = await cocoSsd.load({ base: "lite_mobilenet_v2" });
+    startDetect();
+  } catch (err) {
+    $("camBtn").disabled = false;
+    $("camLabel").textContent = "Kamera açılamadı";
+    flash($("msg"), `Kamera açılamadı: ${err.message}. Aracı elle seçebilirsiniz.`, "warn");
+  }
+}
+
+function startDetect() {
+  if (detecting || !model) return;
+  detecting = true; votes = [];
+  $("camLabel").textContent = "Araç aranıyor…"; $("camLabel").className = "label";
+  loop();
+}
+function stopDetect() { detecting = false; }
+
+async function loop() {
+  while (detecting && video.readyState >= 2) {
+    let best = null;
+    try {
+      const preds = await model.detect(video, 5, 0.45);
+      for (const p of preds) {
+        if (!COCO_MAP[p.class]) continue;
+        const area = p.bbox[2] * p.bbox[3];
+        if (!best || area > best.area) best = { ...p, area, type: COCO_MAP[p.class] };
+      }
+    } catch (e) { /* kare atlandı */ }
+    draw(best);
+    votes.push(best ? best.type : null); if (votes.length > 6) votes.shift();
+    const counts = votes.reduce((acc, t) => (t && (acc[t] = (acc[t] || 0) + 1), acc), {});
+    const stable = Object.entries(counts).find(([, n]) => n >= 4);
+    const label = $("camLabel");
+    if (best) {
+      label.textContent = `${TYPES[best.type]} · %${Math.round(best.score * 100)}`;
+      label.className = `label ${best.type}`;
+    } else { label.textContent = "Araç aranıyor…"; label.className = "label"; }
+    $("lockBtn").disabled = !stable;
+    $("lockBtn").dataset.type = stable ? stable[0] : "";
+    $("lockBtn").textContent = stable ? `${TYPES[stable[0]]} ✓ Bu araç` : "Bu araç ✓";
+    await new Promise(r => setTimeout(r, 250));
+  }
+}
+
+function draw(best) {
+  const ctx = overlay.getContext("2d");
+  if (overlay.width !== video.videoWidth) { overlay.width = video.videoWidth; overlay.height = video.videoHeight; }
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+  if (!best) return;
+  const [x, y, w, h] = best.bbox;
+  ctx.lineWidth = 4; ctx.strokeStyle = best.type === "kamyonet" ? "#f0b45a" : "#4cc79a";
+  ctx.strokeRect(x, y, w, h);
+}
+
+function snapshot() {
+  if (!stream || !video.videoWidth) return null;
+  const c = document.createElement("canvas");
+  c.width = 320; c.height = Math.round(320 * video.videoHeight / video.videoWidth);
+  c.getContext("2d").drawImage(video, 0, 0, c.width, c.height);
+  return c.toDataURL("image/jpeg", 0.7);
+}
+
+function choose(type, source) {
+  chosen = { type, source, snapshot: snapshot() };
+  $("typeLabel").textContent = TYPES[type];
+  $("typeSource").textContent = source === "camera" ? "Kameradan sınıflandırıldı" : "Elle seçildi";
+  $("snap").classList.toggle("hidden", !chosen.snapshot);
+  if (chosen.snapshot) $("snap").src = chosen.snapshot;
+  const price = Number(settings.fiyat[type]) || 0;
+  $("amount").value = price ? String(price).replace(".", ",") : "";
+  $("priceView").textContent = TL(price);
+  if (!price) flash($("msg"), "Bu araç cinsi için fiyat tanımlı değil; tutarı girin ya da Ayarlar'dan fiyatları kaydedin.", "warn");
+  goStep(2);
+  if (!price) $("amount").focus();
+}
+
+$("camBtn").onclick = startCamera;
+$("lockBtn").onclick = () => $("lockBtn").dataset.type && choose($("lockBtn").dataset.type, "camera");
+document.querySelectorAll("[data-type]").forEach(b => b.onclick = () => choose(b.dataset.type, "manual"));
+$("amount").oninput = () => $("priceView").textContent = TL(parseAmount($("amount").value));
+function parseAmount(v) { return Number(String(v).replace(/\./g, "").replace(",", ".")) || Number(v) || 0; }
+
+// 2 -> 3
+$("back1").onclick = () => goStep(1);
+$("confirmBtn").onclick = () => {
+  const amount = parseAmount($("amount").value);
+  if (!(amount > 0)) return flash($("msg"), "Tutar sıfırdan büyük olmalıdır.");
+  confirmed = { type: chosen.type, amount, plate: $("plate").value.trim().toUpperCase() };
+  $("summary").textContent = `${TYPES[confirmed.type]}${confirmed.plate ? ` · ${confirmed.plate}` : ""} · ${TL(amount)} ₺ (KDV dahil)`;
+  $("docChoice").classList.remove("hidden");
+  $("invoiceForm").classList.add("hidden");
+  $("invoiceResult").classList.add("hidden");
+  $("newBtn").classList.add("hidden");
+  $("back2").classList.remove("hidden");
+  goStep(3);
+};
+$("back2").onclick = () => goStep(2);
+$("back3").onclick = () => { $("invoiceForm").classList.add("hidden"); $("docChoice").classList.remove("hidden"); };
+
+// Bilgi fişi
+$("receiptBtn").onclick = async () => {
+  $("receiptBtn").disabled = true;
+  try {
+    const { receipt } = await api("api/arac/fis", { method: "POST", body: { vehicleType: confirmed.type, amount: confirmed.amount, plate: confirmed.plate } });
+    showReceipt(receipt);
+    $("docChoice").classList.add("hidden");
+    $("newBtn").classList.remove("hidden");
+    $("back2").classList.add("hidden");
+    flash($("msg"), `Bilgi fişi #${receipt.no} kaydedildi.`, "ok");
+  } catch (err) { flash($("msg"), err.message); }
+  $("receiptBtn").disabled = false;
+};
+
+function showReceipt(r) {
+  const net = r.tutar / (1 + r.kdvOrani / 100);
+  const html = `<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>Bilgi Fişi #${r.no}</title>
+<style>body{font:14px/1.5 system-ui,sans-serif;max-width:360px;margin:16px auto;padding:0 12px;color:#000}
+h1{font-size:18px;margin:0 0 4px;text-align:center}.c{text-align:center}.m{color:#555;font-size:12px}
+table{width:100%;border-collapse:collapse;margin:12px 0}td{padding:4px 0;border-bottom:1px dashed #bbb}td:last-child{text-align:right}
+.t td{font-weight:700;font-size:16px;border-bottom:2px solid #000}.n{margin-top:16px;text-align:center;font-weight:700;border:2px solid #000;padding:8px}
+@media print{body{margin:0}}</style></head><body>
+<h1>${esc(r.isletme?.ad || "Oto Yıkama")}</h1>
+<div class="c m">${esc(r.isletme?.adres || "")}</div>
+<div class="c" style="margin-top:12px"><b>BİLGİ FİŞİ</b> &nbsp; No: ${r.no}</div>
+<div class="c m">${esc(r.tarih)} ${esc(r.saat)}</div>
+<table>
+<tr><td>Araç cinsi</td><td>${esc(r.aracCinsi)}</td></tr>
+${r.plaka ? `<tr><td>Plaka</td><td>${esc(r.plaka)}</td></tr>` : ""}
+<tr><td>Oto yıkama hizmeti</td><td>${TL(net)} ₺</td></tr>
+<tr><td>KDV %${esc(r.kdvOrani)}</td><td>${TL(r.tutar - net)} ₺</td></tr>
+<tr class="t"><td>TOPLAM</td><td>${TL(r.tutar)} ₺</td></tr>
+</table>
+<div class="n">${esc(r.not)}</div>
+</body></html>`;
+  $("receiptFrame").srcdoc = html;
+  $("receiptDialog").showModal();
+}
+$("printBtn").onclick = () => $("receiptFrame").contentWindow.print();
+
+// e-Arşiv fatura
+$("invoiceBtn").onclick = () => {
+  $("docChoice").classList.add("hidden");
+  $("invoiceForm").classList.remove("hidden");
+  $("r-id").focus();
+};
+$("lookupBtn").onclick = async () => {
+  const id = $("r-id").value.trim();
+  if (!/^\d{10,11}$/.test(id)) return flash($("msg"), "VKN 10, TCKN 11 haneli olmalıdır.");
+  $("lookupBtn").disabled = true;
+  try {
+    const { recipient } = await api(`api/recipient?id=${encodeURIComponent(id)}`);
+    $("r-title").value = recipient.unvan || "";
+    $("r-name").value = recipient.adi || "";
+    $("r-surname").value = recipient.soyadi || "";
+    flash($("msg"), recipient.unvan || recipient.adi ? "Alıcı bilgileri getirildi." : "GİB'de kayıt bulunamadı; bilgileri elle girin.", recipient.unvan || recipient.adi ? "ok" : "warn");
+  } catch (err) { flash($("msg"), err.message); }
+  $("lookupBtn").disabled = false;
+};
+$("cutBtn").onclick = async () => {
+  if (!confirm(`${TYPES[confirmed.type]} için ${TL(confirmed.amount)} ₺ tutarında e-Arşiv fatura taslağı kesilecek. Devam edilsin mi?`)) return;
+  $("cutBtn").disabled = true; $("cutBtn").textContent = "Kesiliyor…";
+  try {
+    const id = $("r-id").value.trim();
+    const data = await api("api/arac/fatura", { method: "POST", body: {
+      vehicleType: confirmed.type, amount: confirmed.amount, plate: confirmed.plate,
+      recipient: id ? { taxIDOrTRID: id, title: $("r-title").value.trim(), name: $("r-name").value.trim(), surname: $("r-surname").value.trim() } : null
+    } });
+    $("cutMsg").textContent = `Fatura taslağı oluşturuldu (ETTN ${data.uuid}). Toplam ${TL(data.invoice.grandTotalInclVAT)} ₺.`;
+    const rows = [...data.unapproved.map(i => ({ ...i, _ok: false })), ...data.approved.map(i => ({ ...i, _ok: true }))];
+    $("todayRows").innerHTML = rows.length ? rows.map(i => `<tr>
+      <td><span class="badge ${i._ok ? "ok" : "wait"}">${esc(i.onayDurumu)}</span></td>
+      <td>${esc(i.belgeNumarasi)}</td><td>${esc(i.aliciUnvanAdSoyad)}</td>
+      <td>${esc(i.odenecekTutar || i.toplamTutar || "")}</td></tr>`).join("")
+      : `<tr><td colspan="4" class="muted">GİB listesi alınamadı.</td></tr>`;
+    $("invoiceForm").classList.add("hidden");
+    $("invoiceResult").classList.remove("hidden");
+    $("newBtn").classList.remove("hidden");
+    $("back2").classList.add("hidden");
+  } catch (err) { flash($("msg"), err.message); }
+  $("cutBtn").disabled = false; $("cutBtn").textContent = "Fatura kes";
+};
+
+$("newBtn").onclick = () => { chosen = confirmed = null; $("plate").value = ""; ["r-id","r-title","r-name","r-surname"].forEach(id => $(id).value = ""); goStep(1); };
+
+// Ayarlar
+function fillSettings(s) {
+  settings = s;
+  $("testTag").classList.toggle("hidden", !s.testMode);
+  $("s-ad").value = s.isletme.ad || ""; $("s-adres").value = s.isletme.adres || "";
+  $("s-kamyonet").value = s.fiyat.kamyonet || ""; $("s-hususi").value = s.fiyat.hususi || ""; $("s-kdv").value = s.fiyat.kdv;
+  $("gibInfo").textContent = s.gibSaved ? `GİB girişi bu sunucuda kayıtlı: ${s.gibUsername}. Sayfa açılınca otomatik giriş yapılır.` : "GİB bilgisi kayıtlı değil; fatura panelinde girişte “bilgileri kaydet” seçeneğini işaretleyin.";
+  $("gibForget").classList.toggle("hidden", !s.gibSaved);
+}
+$("settingsBtn").onclick = () => { flash($("settingsMsg")); $("settingsDialog").showModal(); };
+$("settingsForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  try {
+    fillSettings(await api("api/settings", { method: "PUT", body: {
+      isletme: { ad: $("s-ad").value, adres: $("s-adres").value },
+      fiyat: { kamyonet: parseAmount($("s-kamyonet").value), hususi: parseAmount($("s-hususi").value), kdv: Number($("s-kdv").value) }
+    } }));
+    $("settingsDialog").close();
+    flash($("msg"), "Ayarlar kaydedildi.", "ok");
+  } catch (err) { flash($("settingsMsg"), err.message); }
+});
+$("gibForget").onclick = async () => {
+  if (!confirm("Kayıtlı GİB bilgisi silinsin mi? Otomatik giriş çalışmaz.")) return;
+  try { fillSettings(await api("api/settings/gib", { method: "DELETE" })); } catch (err) { flash($("settingsMsg"), err.message); }
+};
+
+// Başlangıç: oturum yoksa kayıtlı GİB bilgisiyle gir; o da yoksa giriş sayfasına yönlen.
+(async () => {
+  try {
+    const me = await api("api/me");
+    $("userName").textContent = me.user ? (me.user.title || `${me.user.name || ""} ${me.user.surname || ""}`).trim() : "";
+    fillSettings(await api("api/settings"));
+    goStep(1);
+  } catch (e) { /* api() yönlendirdi */ }
+})();
+</script>
+</body>
+</html>

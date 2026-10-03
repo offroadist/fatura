@@ -28,10 +28,14 @@ chown -R fatura:fatura "$APP_DIR"
 
 mkdir -p "$ENV_DIR"
 if [ ! -f "$ENV_DIR/fatura.env" ]; then
-  sed "s/^COOKIE_SECRET=.*/COOKIE_SECRET=$(openssl rand -hex 32)/" "$APP_DIR/deploy/sorgu/fatura.env.example" > "$ENV_DIR/fatura.env"
+  sed -e "s/^COOKIE_SECRET=.*/COOKIE_SECRET=$(openssl rand -hex 32)/" \
+      -e "s/^DATA_SECRET=.*/DATA_SECRET=$(openssl rand -hex 32)/" \
+      "$APP_DIR/deploy/sorgu/fatura.env.example" > "$ENV_DIR/fatura.env"
   chmod 600 "$ENV_DIR/fatura.env"
   echo "Yeni ayar dosyası: $ENV_DIR/fatura.env (GİB TEST ortamı açık; canlı için FATURA_TEST satırını silin)"
 fi
+
+mkdir -p /var/lib/fatura && chown fatura:fatura /var/lib/fatura && chmod 700 /var/lib/fatura
 
 install -m 644 "$APP_DIR/deploy/sorgu/fatura.service" /etc/systemd/system/fatura.service
 systemctl daemon-reload
@@ -47,4 +51,4 @@ curl -s -o /dev/null -w '  GET /fat/api/me  -> %{http_code} (401 beklenir)\n' ht
 echo
 echo "nginx: deploy/sorgu/nginx-fat.conf içindeki location bloğunu sorgu.co server bloğuna ekleyin,"
 echo "       sonra: nginx -t && systemctl reload nginx"
-echo "Panel: https://sorgu.co/fat"
+echo "Panel: https://sorgu.co/fat   Araç yıkama: https://sorgu.co/fat/arac"

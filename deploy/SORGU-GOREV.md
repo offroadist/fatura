@@ -30,7 +30,8 @@ hanotoyikama (Hana) faturaları buradan kesilecek.
    Node yoksa betik kurulum komutunu yazdırır; kurup tekrar çalıştır.
 3. `deploy/sorgu/nginx-fat.conf` içindeki `location /fat` bloğunu sorgu.co'nun **HTTPS** server bloğuna ekle, `nginx -t && systemctl reload nginx`.
    Apache ise karşılığı: `ProxyPass /fat http://127.0.0.1:3000/fat` ve `ProxyPassReverse /fat http://127.0.0.1:3000/fat` (mod_proxy, mod_proxy_http).
-4. Kontrol: `https://sorgu.co/fat` → giriş ekranı açılmalı; `https://sorgu.co/fat/api/me` → `401` JSON dönmeli.
+4. Kontrol: `https://sorgu.co/fat` → giriş ekranı açılmalı; `https://sorgu.co/fat/api/me` → `401` JSON dönmeli;
+   `https://sorgu.co/fat/arac` → araç yıkama sayfası (kamera için HTTPS şart).
    `curl -sI https://sorgu.co/fat` → `302` ve `Location: /fat/`.
 5. Tarayıcıdan GİB **test** kullanıcı kodu ile giriş yapıp taslak oluşturma ve listelemeyi dene (`FATURA_TEST=1` açık gelir).
 6. Canlıya geçiş: `/etc/fatura/fatura.env` içinden `FATURA_TEST=1` satırını sil, `systemctl restart fatura`.
@@ -39,6 +40,11 @@ hanotoyikama (Hana) faturaları buradan kesilecek.
    `fatura.env` içinde `WA_OTP_URL` / `WA_OTP_KEY` olarak tanımla, servisi yeniden başlat.
 
 Güncelleme için aynı `kur.sh` komutu tekrar çalıştırılır; `fatura.env` korunur.
+
+## Veri dizini
+
+`/var/lib/fatura` (`DATA_DIR`): `ayarlar.json` (işletme, fiyatlar, KDV, AES-GCM ile şifreli GİB bilgisi) ve
+`bilgi-fisleri.json`. Yedeklenmeli; `DATA_SECRET` değişirse kayıtlı GİB şifresi okunamaz, panelden yeniden kaydedilir.
 
 ## Node çalıştırılamıyorsa (yalnızca PHP barındırma)
 

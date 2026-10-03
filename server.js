@@ -8,6 +8,8 @@
 //   COOKIE_SECRET             Telefon çerezini imzalamak için sabit gizli anahtar
 //   COOKIE_SECURE=1           Çerezleri yalnızca HTTPS üzerinden gönder
 //   BASE_PATH=/fat            Panel bir alt yolda yayınlanıyorsa (örn. https://sorgu.co/fat)
+//   DATA_DIR                  Ayarlar, kayıtlı GİB bilgisi ve bilgi fişi kayıtları (varsayılan ./data)
+//   DATA_SECRET               Kayıtlı GİB şifresini şifrelemek için anahtar (yoksa COOKIE_SECRET kullanılır)
 
 const http = require("http");
 const fs = require("fs");
@@ -34,6 +36,28 @@ const COOKIE_PATH = BASE_PATH || "/";
 // Sabit bir anahtar verilmezse sunucu her açıldığında kayıtlı telefon çerezleri geçersiz olur.
 const COOKIE_SECRET =
   process.env.COOKIE_SECRET || crypto.randomBytes(32).toString("hex");
+
+// Kalıcı veri: ayarlar (fiyatlar, işletme, kayıtlı GİB bilgisi) ve bilgi fişi kayıtları.
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
+const SETTINGS_FILE = path.join(DATA_DIR, "ayarlar.json");
+const RECEIPTS_FILE = path.join(DATA_DIR, "bilgi-fisleri.json");
+const DATA_KEY = crypto
+  .createHash("sha256")
+  .update(process.env.DATA_SECRET || COOKIE_SECRET)
+  .digest();
+if (!process.env.DATA_SECRET && !process.env.COOKIE_SECRET) {
+  console.warn(
+    "Uyarı: DATA_SECRET/COOKIE_SECRET tanımlı değil; kayıtlı GİB bilgisi yeniden başlatmada okunamaz."
+  );
+}
+
+const DEFAULT_SETTINGS = {
+  isletme: { ad: "", adres: "" },
+  fiyat: { kamyonet: 0, hususi: 0, kdv: 20 },
+  gib: null // { username, passwordEnc }
+};
+
+const VEHICLE_TYPES = { kamyonet: "Kamyonet", hususi: "Hususi araç" };
 
 if (process.env.FATURA_TEST === "1") {
   fatura.enableTestMode();
@@ -169,6 +193,109 @@ async function sendWhatsAppCode(phone, code) {
   }
 }
 
+function readJSON(file, fallback) {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (e) {
+    if (e.code !== "ENOENT") console.error(`${file} okunamadı:`, e.message);
+    return fallback;
+  }
+}
+
+function writeJSON(file, data) {
+  fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { mode: 0o600 });
+  fs.renameSync(tmp, file);
+}
+
+function loadSettings() {
+  const saved = readJSON(SETTINGS_FILE, {});
+  return {
+    isletme: { ...DEFAULT_SETTINGS.isletme, ...(saved.isletme || {}) },
+    fiyat: { ...DEFAULT_SETTINGS.fiyat, ...(saved.fiyat || {}) },
+    gib: saved.gib || null
+  };
+}
+
+function saveSettings(settings) {
+  writeJSON(SETTINGS_FILE, settings);
+}
+
+// AES-256-GCM: iv.tag.şifreli (base64)
+function encrypt(text) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", DATA_KEY, iv);
+  const enc = Buffer.concat([cipher.update(String(text), "utf8"), cipher.final()]);
+  return [iv, cipher.getAuthTag(), enc].map(b => b.toString("base64")).join(".");
+}
+
+function decrypt(payload) {
+  const [iv, tag, enc] = String(payload).split(".").map(part => Buffer.from(part, "base64"));
+  const decipher = crypto.createDecipheriv("aes-256-gcm", DATA_KEY, iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(enc), decipher.final()]).toString("utf8");
+}
+
+// Dışarıya verilen ayar görünümü: şifre asla gönderilmez.
+function publicSettings(settings) {
+  return {
+    isletme: settings.isletme,
+    fiyat: settings.fiyat,
+    gibSaved: Boolean(settings.gib),
+    gibUsername: settings.gib ? settings.gib.username : "",
+    testMode: process.env.FATURA_TEST === "1"
+  };
+}
+
+function money(value) {
+  const number = Number(String(value).replace(",", "."));
+  if (!Number.isFinite(number) || number < 0) throw new HttpError(400, "Tutarı kontrol edin.");
+  return round(number);
+}
+
+function vehicleLabel(type) {
+  const label = VEHICLE_TYPES[type];
+  if (!label) throw new HttpError(400, "Araç cinsi kamyonet ya da hususi olmalıdır.");
+  return label;
+}
+
+// KDV dahil tutardan tek kalemlik yıkama hizmeti satırı üretir; KDV dahil toplam
+// yuvarlama farkı olmadan verilen tutara eşit çıkacak şekilde net fiyat seçilir.
+function washInvoiceItem({ grossTotal, VATRate, vehicleType, plate }) {
+  const rate = Number(VATRate);
+  if (!Number.isFinite(rate) || rate < 0 || rate > 100) throw new HttpError(400, "KDV oranını kontrol edin.");
+  const gross = money(grossTotal);
+  if (gross <= 0) throw new HttpError(400, "Tutar sıfırdan büyük olmalıdır.");
+  const base = round(gross / (1 + rate / 100));
+  const net =
+    [base, round(base - 0.01), round(base + 0.01)].find(
+      candidate => candidate > 0 && round(candidate + round((candidate * rate) / 100)) === gross
+    ) || base;
+  const name = `Oto yıkama hizmeti - ${vehicleLabel(vehicleType)}${plate ? ` (${plate})` : ""}`;
+  return { name, quantity: 1, unitType: "C62", unitPrice: net, VATRate: rate };
+}
+
+function normalizePlate(plate) {
+  const value = String(plate || "").toUpperCase().replace(/[^A-Z0-9 ]/g, "").trim().slice(0, 12);
+  return value;
+}
+
+async function openSession(username, password) {
+  const token = await fatura.getToken(
+    encodeURIComponent(String(username).trim()),
+    encodeURIComponent(password)
+  );
+  const sid = crypto.randomBytes(32).toString("hex");
+  sessions.set(sid, { token, lastUsed: Date.now() });
+  const user = await fatura.getUserData(token).catch(() => null);
+  return { sid, token, user };
+}
+
+function sessionCookie(sid) {
+  return `sid=${sid}; HttpOnly; SameSite=Strict; Path=${COOKIE_PATH}; Max-Age=${SESSION_TTL / 1000}${COOKIE_SECURE}`;
+}
+
 function getSession(req) {
   const sid = parseCookies(req).sid;
   const session = sid && sessions.get(sid);
@@ -255,27 +382,41 @@ async function findInvoicesByETTN(token, { startDate, endDate, ettns }) {
 // Rotalar
 
 const routes = {
+  // { username, password, remember? }  ya da  { saved: true } (kayıtlı GİB bilgisiyle giriş)
   "POST /api/login": async (req, res) => {
-    const { username, password } = await readBody(req);
+    const body = await readBody(req);
+    let { username, password } = body;
+    if (body.saved) {
+      const { gib } = loadSettings();
+      if (!gib) throw new HttpError(400, "Kayıtlı GİB bilgisi yok.");
+      username = gib.username;
+      try {
+        password = decrypt(gib.passwordEnc);
+      } catch (e) {
+        throw new HttpError(500, "Kayıtlı GİB şifresi okunamadı; bilgileri yeniden kaydedin.");
+      }
+    }
     if (!username || !password) {
       throw new HttpError(400, "Kullanıcı kodu ve şifre gerekli.");
     }
-    const token = await fatura.getToken(
-      encodeURIComponent(username.trim()),
-      encodeURIComponent(password)
-    );
-    const sid = crypto.randomBytes(32).toString("hex");
-    sessions.set(sid, { token, lastUsed: Date.now() });
-    const user = await fatura.getUserData(token).catch(() => null);
+    const { sid, user } = await openSession(username, password);
+    if (body.remember && !body.saved) {
+      const settings = loadSettings();
+      settings.gib = { username: String(username).trim(), passwordEnc: encrypt(password) };
+      saveSettings(settings);
+    }
     sendJSON(
       res,
       200,
       { user, testMode: process.env.FATURA_TEST === "1" },
-      {
-        "set-cookie": `sid=${sid}; HttpOnly; SameSite=Strict; Path=${COOKIE_PATH}; Max-Age=${SESSION_TTL /
-          1000}${COOKIE_SECURE}`
-      }
+      { "set-cookie": sessionCookie(sid) }
     );
+  },
+
+  // Giriş ekranı için: bu sunucuda kayıtlı GİB bilgisi var mı?
+  "GET /api/login/saved": async (req, res) => {
+    const { gib } = loadSettings();
+    sendJSON(res, 200, { saved: Boolean(gib), username: gib ? gib.username : "" });
   },
 
   "POST /api/logout": async (req, res) => {
@@ -380,6 +521,115 @@ const routes = {
   },
 
   // GİB onayı 1. adım: kayıtlı cep telefonuna SMS şifresi gönderilir.
+  // Ayarlar: işletme bilgisi, araç cinsine göre fiyatlar, KDV, kayıtlı GİB bilgisi durumu
+  "GET /api/settings": async (req, res) => {
+    getSession(req);
+    sendJSON(res, 200, publicSettings(loadSettings()));
+  },
+
+  "PUT /api/settings": async (req, res) => {
+    getSession(req);
+    const body = await readBody(req);
+    const settings = loadSettings();
+    if (body.isletme) {
+      settings.isletme = {
+        ad: String(body.isletme.ad || "").trim().slice(0, 120),
+        adres: String(body.isletme.adres || "").trim().slice(0, 300)
+      };
+    }
+    if (body.fiyat) {
+      const kdv = Number(body.fiyat.kdv);
+      if (!Number.isFinite(kdv) || kdv < 0 || kdv > 100) throw new HttpError(400, "KDV oranını kontrol edin.");
+      settings.fiyat = {
+        kamyonet: money(body.fiyat.kamyonet),
+        hususi: money(body.fiyat.hususi),
+        kdv
+      };
+    }
+    saveSettings(settings);
+    sendJSON(res, 200, publicSettings(settings));
+  },
+
+  "DELETE /api/settings/gib": async (req, res) => {
+    getSession(req);
+    const settings = loadSettings();
+    settings.gib = null;
+    saveSettings(settings);
+    sendJSON(res, 200, publicSettings(settings));
+  },
+
+  // Bilgi fişi: mali değeri olmayan, sıra numaralı yerel kayıt.
+  "POST /api/arac/fis": async (req, res) => {
+    getSession(req);
+    const body = await readBody(req);
+    const settings = loadSettings();
+    const receipts = readJSON(RECEIPTS_FILE, []);
+    const now = istanbulNow();
+    const receipt = {
+      no: receipts.length ? receipts[receipts.length - 1].no + 1 : 1,
+      tarih: now.date,
+      saat: now.time,
+      aracCinsi: vehicleLabel(body.vehicleType),
+      plaka: normalizePlate(body.plate),
+      tutar: money(body.amount),
+      kdvOrani: settings.fiyat.kdv,
+      isletme: settings.isletme,
+      not: "Bilgi fişidir, mali değeri yoktur."
+    };
+    if (receipt.tutar <= 0) throw new HttpError(400, "Tutar sıfırdan büyük olmalıdır.");
+    receipts.push(receipt);
+    writeJSON(RECEIPTS_FILE, receipts.slice(-5000));
+    sendJSON(res, 200, { receipt });
+  },
+
+  "GET /api/arac/fisler": async (req, res) => {
+    getSession(req);
+    const receipts = readJSON(RECEIPTS_FILE, []);
+    sendJSON(res, 200, { receipts: receipts.slice(-100).reverse() });
+  },
+
+  // Araç yıkama için tek kalemlik e-Arşiv taslağı keser, ardından günün
+  // onaylı/onaysız faturalarını döndürür. Alıcı verilmezse nihai tüketici.
+  "POST /api/arac/fatura": async (req, res) => {
+    const { token } = getSession(req);
+    const body = await readBody(req);
+    const settings = loadSettings();
+    const plate = normalizePlate(body.plate);
+    const item = washInvoiceItem({
+      grossTotal: body.amount,
+      VATRate: settings.fiyat.kdv,
+      vehicleType: body.vehicleType,
+      plate
+    });
+    const recipient = body.recipient || {};
+    const hasRecipient = /^\d{10,11}$/.test(recipient.taxIDOrTRID || "");
+    const invoice = buildInvoice({
+      taxIDOrTRID: hasRecipient ? recipient.taxIDOrTRID : "11111111111",
+      title: hasRecipient ? recipient.title || "" : "",
+      name: hasRecipient ? recipient.name || "" : "Nihai",
+      surname: hasRecipient ? recipient.surname || "" : "Tüketici",
+      taxOffice: recipient.taxOffice || "",
+      fullAddress: recipient.fullAddress || "",
+      district: recipient.district || "",
+      city: recipient.city || "",
+      email: recipient.email || "",
+      items: [item]
+    });
+    const draft = await fatura.createDraftInvoice(token, invoice);
+    const today = istanbulNow().date;
+    const invoices =
+      (await fatura
+        .getAllInvoicesByDateRange(token, { startDate: today, endDate: today })
+        .catch(() => null)) || [];
+    sendJSON(res, 200, {
+      uuid: draft.uuid,
+      message: draft.data,
+      invoice,
+      approved: invoices.filter(inv => inv.onayDurumu === "Onaylandı"),
+      unapproved: invoices.filter(inv => inv.onayDurumu !== "Onaylandı")
+    });
+  },
+
   "POST /api/sms/send": async (req, res) => {
     const { token } = getSession(req);
     const phone = await fatura.getPhoneNumber(token);
@@ -507,6 +757,9 @@ function serveStatic(res, file, type) {
   });
 }
 
+// Ek sayfalar (alt yol altında da aynı adlarla: /fat/arac)
+const PAGES = { "/arac": "arac.html", "/arac.html": "arac.html" };
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   let pathname = url.pathname;
@@ -520,6 +773,9 @@ const server = http.createServer(async (req, res) => {
       return res.end();
     }
     return serveStatic(res, "index.html", "text/html; charset=utf-8");
+  }
+  if (req.method === "GET" && PAGES[pathname]) {
+    return serveStatic(res, PAGES[pathname], "text/html; charset=utf-8");
   }
   const handler = routes[`${req.method} ${pathname}`];
   if (!handler) return sendJSON(res, 404, { error: "Bulunamadı" });
@@ -542,4 +798,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { server, buildInvoice };
+module.exports = { server, buildInvoice, washInvoiceItem, sessions };
