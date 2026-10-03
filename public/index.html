@@ -229,7 +229,7 @@ async function api(path, opts = {}) {
     body: opts.body && JSON.stringify(opts.body)
   });
   const data = await res.json().catch(() => ({}));
-  if (res.status === 401 && path !== "/api/login") showLogin(data.error);
+  if (res.status === 401 && path !== "api/login") showLogin(data.error);
   if (!res.ok) throw new Error(data.error || "İşlem başarısız.");
   return data;
 }
@@ -244,7 +244,7 @@ function showLogin(message) {
   $("appView").classList.add("hidden");
   $("loginView").classList.remove("hidden");
   flash($("loginMsg"), message);
-  api("/api/whatsapp/remembered")
+  api("api/whatsapp/remembered")
     .then(({ phone }) => flash($("rememberedPhone"), phone && `Bu cihaz WhatsApp ile doğrulandı: ${phone}`, "ok"))
     .catch(() => {});
 }
@@ -263,7 +263,7 @@ $("loginForm").addEventListener("submit", async e => {
   e.preventDefault();
   const btn = e.submitter; btn.disabled = true; btn.textContent = "Bağlanıyor…";
   try {
-    const data = await api("/api/login", { method: "POST", body: { username: $("username").value, password: $("password").value } });
+    const data = await api("api/login", { method: "POST", body: { username: $("username").value, password: $("password").value } });
     $("password").value = "";
     showApp(data);
   } catch (err) { flash($("loginMsg"), err.message); }
@@ -271,13 +271,13 @@ $("loginForm").addEventListener("submit", async e => {
 });
 async function logout() {
   if ($("waDialog").open) $("waDialog").close();
-  await api("/api/logout", { method: "POST" }).catch(() => {});
+  await api("api/logout", { method: "POST" }).catch(() => {});
   showLogin();
 }
 
 // Çıkış: bu cihazda doğrulanmış telefon yoksa önce WhatsApp ile doğrulat.
 $("logoutBtn").onclick = async () => {
-  const status = await api("/api/whatsapp/status").catch(() => null);
+  const status = await api("api/whatsapp/status").catch(() => null);
   if (!status || status.verified) return logout();
   $("waPhone").value = status.suggestedPhone;
   $("waCode").value = "";
@@ -293,7 +293,7 @@ $("waSkip").onclick = logout;
 $("waSend").onclick = async () => {
   $("waSend").disabled = true;
   try {
-    const { phone } = await api("/api/whatsapp/send", { method: "POST", body: { phone: $("waPhone").value } });
+    const { phone } = await api("api/whatsapp/send", { method: "POST", body: { phone: $("waPhone").value } });
     $("waInfo").textContent = `${phone} numarasına WhatsApp'tan gönderilen 6 haneli kodu girin.`;
     $("waPhoneStep").classList.add("hidden");
     $("waCodeStep").classList.remove("hidden");
@@ -308,7 +308,7 @@ $("waForm").addEventListener("submit", async e => {
   e.preventDefault();
   $("waVerify").disabled = true;
   try {
-    await api("/api/whatsapp/verify", { method: "POST", body: { code: $("waCode").value.trim() } });
+    await api("api/whatsapp/verify", { method: "POST", body: { code: $("waCode").value.trim() } });
     await logout();
   } catch (err) { flash($("waMsg"), err.message); }
   $("waVerify").disabled = false;
@@ -329,7 +329,7 @@ async function loadInvoices() {
   const { startDate, endDate } = range();
   $("invoiceRows").innerHTML = `<tr><td colspan="7" class="muted">Yükleniyor…</td></tr>`;
   try {
-    const data = await api(`/api/invoices?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`);
+    const data = await api(`api/invoices?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`);
     invoices = data.invoices;
     renderInvoices();
   } catch (err) {
@@ -377,8 +377,8 @@ $("invoiceRows").addEventListener("click", async e => {
   if (view !== undefined) {
     const inv = invoices[view];
     const q = `ettn=${encodeURIComponent(inv.ettn)}&signed=${inv.onayDurumu === "Onaylandı" ? 1 : 0}`;
-    $("previewFrame").src = `/api/invoice-html?${q}`;
-    $("downloadLink").href = `/api/invoice-download?${q}`;
+    $("previewFrame").src = `api/invoice-html?${q}`;
+    $("downloadLink").href = `api/invoice-download?${q}`;
     $("previewDialog").showModal();
   }
   if (del !== undefined) {
@@ -386,7 +386,7 @@ $("invoiceRows").addEventListener("click", async e => {
     const reason = prompt(`${inv.aliciUnvanAdSoyad} taslağı silinecek. Silme nedeni:`, "Hatalı düzenlendi");
     if (reason === null) return;
     try {
-      await api("/api/invoices/cancel", { method: "POST", body: { ...range(), ettn: inv.ettn, reason } });
+      await api("api/invoices/cancel", { method: "POST", body: { ...range(), ettn: inv.ettn, reason } });
       flash($("appMsg"), "Taslak silindi.", "ok");
       loadInvoices();
     } catch (err) { flash($("appMsg"), err.message); }
@@ -402,7 +402,7 @@ $("approveBtn").onclick = async () => {
   const total = selected.length;
   $("approveBtn").disabled = true;
   try {
-    const data = await api("/api/sms/send", { method: "POST" });
+    const data = await api("api/sms/send", { method: "POST" });
     sms = { oid: data.oid, ettns: selected.map(inv => inv.ettn) };
     $("smsInfo").textContent = `${total} fatura onaylanacak. ${data.phone} numaralı telefona gönderilen SMS şifresini girin.`;
     $("smsCode").value = "";
@@ -416,7 +416,7 @@ $("smsForm").addEventListener("submit", async e => {
   e.preventDefault();
   const btn = $("smsVerify"); btn.disabled = true;
   try {
-    const data = await api("/api/sms/verify", { method: "POST", body: { ...range(), ...sms, code: $("smsCode").value.trim() } });
+    const data = await api("api/sms/verify", { method: "POST", body: { ...range(), ...sms, code: $("smsCode").value.trim() } });
     $("smsDialog").close();
     flash($("appMsg"), `${data.count} fatura GİB'de onaylandı.`, "ok");
     loadInvoices();
@@ -473,7 +473,7 @@ $("itemRows").addEventListener("click", e => {
 $("lookupBtn").onclick = async () => {
   const id = $("f-vkn").value.trim();
   try {
-    const { recipient } = await api(`/api/recipient?id=${encodeURIComponent(id)}`);
+    const { recipient } = await api(`api/recipient?id=${encodeURIComponent(id)}`);
     $("f-title").value = recipient.unvan || "";
     $("f-name").value = recipient.adi || "";
     $("f-surname").value = recipient.soyadi || "";
@@ -493,7 +493,7 @@ $("tab-new").addEventListener("submit", async e => {
       district: $("f-district").value.trim(), city: $("f-city").value.trim(),
       email: $("f-email").value.trim(), date: toGIB($("f-date").value), items: readItems()
     };
-    await api("/api/invoices", { method: "POST", body });
+    await api("api/invoices", { method: "POST", body });
     flash($("appMsg"), "Taslak fatura oluşturuldu. GİB'de kesilmesi için listeden seçip SMS ile onaylayın.", "ok");
     e.target.reset(); $("itemRows").innerHTML = ""; addItem(); $("f-date").value = toISO(new Date());
     document.querySelector('[data-tab="list"]').click();
@@ -509,7 +509,7 @@ $("endDate").value = toISO(today);
 $("startDate").value = toISO(new Date(today.getFullYear(), today.getMonth(), 1));
 $("f-date").value = toISO(today);
 addItem();
-api("/api/me").then(showApp).catch(() => showLogin());
+api("api/me").then(showApp).catch(() => showLogin());
 </script>
 </body>
 </html>

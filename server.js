@@ -7,6 +7,7 @@
 //   WA_OTP_KEY                wa-otp.php ile paylaşılan gizli anahtar
 //   COOKIE_SECRET             Telefon çerezini imzalamak için sabit gizli anahtar
 //   COOKIE_SECURE=1           Çerezleri yalnızca HTTPS üzerinden gönder
+//   BASE_PATH=/fat            Panel bir alt yolda yayınlanıyorsa (örn. https://sorgu.co/fat)
 
 const http = require("http");
 const fs = require("fs");
@@ -23,6 +24,12 @@ const WHATSAPP_CODE_TTL = 5 * 60 * 1000;
 const WHATSAPP_RESEND_WAIT = 60 * 1000;
 const WHATSAPP_MAX_ATTEMPTS = 5;
 const COOKIE_SECURE = process.env.COOKIE_SECURE === "1" ? "; Secure" : "";
+
+// Panel bir alt yolda yayınlanıyorsa (BASE_PATH=/fat): istekler hem "/fat/api/..." hem de
+// ters vekilin öneki kırptığı "/api/..." biçiminde gelebilir; ikisi de kabul edilir.
+// Çerezler yalnızca bu alt yola yazılır.
+const BASE_PATH = ("/" + (process.env.BASE_PATH || "")).replace(/\/+/g, "/").replace(/\/$/, "");
+const COOKIE_PATH = BASE_PATH || "/";
 
 // Sabit bir anahtar verilmezse sunucu her açıldığında kayıtlı telefon çerezleri geçersiz olur.
 const COOKIE_SECRET =
@@ -265,7 +272,7 @@ const routes = {
       200,
       { user, testMode: process.env.FATURA_TEST === "1" },
       {
-        "set-cookie": `sid=${sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_TTL /
+        "set-cookie": `sid=${sid}; HttpOnly; SameSite=Strict; Path=${COOKIE_PATH}; Max-Age=${SESSION_TTL /
           1000}${COOKIE_SECURE}`
       }
     );
@@ -280,7 +287,7 @@ const routes = {
       res,
       200,
       { ok: true },
-      { "set-cookie": "sid=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0" }
+      { "set-cookie": `sid=; HttpOnly; SameSite=Strict; Path=${COOKIE_PATH}; Max-Age=0` }
     );
   },
 
@@ -477,7 +484,7 @@ const routes = {
       200,
       { phone: maskPhone(pending.phone) },
       {
-        "set-cookie": `wa_phone=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${PHONE_COOKIE_TTL}${COOKIE_SECURE}`
+        "set-cookie": `wa_phone=${value}; HttpOnly; SameSite=Strict; Path=${COOKIE_PATH}; Max-Age=${PHONE_COOKIE_TTL}${COOKIE_SECURE}`
       }
     );
   }
@@ -502,10 +509,19 @@ function serveStatic(res, file, type) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
-  if (req.method === "GET" && url.pathname === "/") {
+  let pathname = url.pathname;
+  if (BASE_PATH && (pathname === BASE_PATH || pathname.startsWith(BASE_PATH + "/"))) {
+    pathname = pathname.slice(BASE_PATH.length) || "/";
+  }
+  if (req.method === "GET" && pathname === "/") {
+    // Göreli API adreslerinin doğru çözülmesi için alt yol her zaman "/" ile bitmeli.
+    if (BASE_PATH && !url.pathname.endsWith("/")) {
+      res.writeHead(302, { location: `${url.pathname}/${url.search}` });
+      return res.end();
+    }
     return serveStatic(res, "index.html", "text/html; charset=utf-8");
   }
-  const handler = routes[`${req.method} ${url.pathname}`];
+  const handler = routes[`${req.method} ${pathname}`];
   if (!handler) return sendJSON(res, 404, { error: "Bulunamadı" });
   try {
     await handler(req, res, url);
@@ -520,7 +536,7 @@ const server = http.createServer(async (req, res) => {
 if (require.main === module) {
   server.listen(PORT, HOST, () => {
     console.log(
-      `Fatura paneli: http://${HOST}:${PORT}` +
+      `Fatura paneli: http://${HOST}:${PORT}${BASE_PATH}/` +
         (process.env.FATURA_TEST === "1" ? " (GİB TEST ortamı)" : "")
     );
   });

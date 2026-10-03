@@ -54,6 +54,11 @@ Bu değerleri sunucunun ortam değişkenlerine yazın; repoya eklemeyin.
 
 > Panel varsayılan olarak yalnızca `127.0.0.1` üzerinde dinler. Sunucuya kurulacaksa önüne HTTPS'li bir ters vekil (nginx vb.) koyun.
 
+#### Alt yolda yayınlama (örn. sorgu.co/fat)
+
+`BASE_PATH=/fat` ile başlatılan panel `/fat/...` isteklerini kabul eder, `/fat` adresini `/fat/` adresine yönlendirir ve çerezleri
+yalnızca bu yola yazar. Hazır kurulum (systemd + nginx) için `deploy/SORGU-GOREV.md` ve `deploy/sorgu/` klasörüne bakın.
+
 ## Yükleme
 
 ```

@@ -1,0 +1,21 @@
+# /etc/systemd/system/fatura.service
+[Unit]
+Description=e-Arşiv fatura paneli (sorgu.co/fat)
+After=network.target
+
+[Service]
+Type=simple
+User=fatura
+Group=fatura
+WorkingDirectory=/opt/fatura
+EnvironmentFile=/etc/fatura/fatura.env
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
